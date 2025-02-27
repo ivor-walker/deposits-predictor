@@ -1,0 +1,32 @@
+SIGNIFICANT
+age_group
+job
+education
+contact
+lag_proportion_yes_month
+call_duration
+campaign
+contacted
+poutcome
+euribor3m
+emp.var.rate
+nr.employed * emp.var.rate
+
+SIGNIFICANT, NON-LINEAR
+nr.employed
+cons.price.idx
+cons.conf.idx
+cons.price.idx * cons.conf.idx
+
+INSIGNIFICANT
+marital
+housing
+loan
+day_of_week
+
+REMOVE
+day_id
+week_id
+month_id
+date_label
+
