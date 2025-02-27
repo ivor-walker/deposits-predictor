@@ -1,16 +1,36 @@
-from logistic_GAM import LogisticGAM
-from random_forest import RandomForest
-
+from models import *
 
 """
-Class representing the three models
+Class representing all models. Contains objects of all models and provides methods to train and evaluate all models.
 """
 class Models:
     """
-    Constructor: initialises the models
-    @param data: instance of Data class containing the data
+    Constructor: initialise all models
     """
     def __init__(self, data):
-        self.data = data;
+        self.models = {
+             
+        };
 
-        sel
+    """
+    Train all models
+    """
+    def train(self):
+        for model in self.models.values(): 
+            model.train(); 
+
+    """
+    Get confusion matrices for all models
+    """
+    def calculate_confusion_matrix(self):
+        return {
+            name: model.calculate_confusion_matrix() for name, model in self.models.items()
+        };
+
+    """
+    Calculate F1 scores
+    """
+    def calculate_f1_score(self):
+        return {
+            name: model.calculate_f1_score() for name, model in self.models.items()
+        };
