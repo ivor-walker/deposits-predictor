@@ -1,3 +1,7 @@
+from base_classifier import BaseClassifier
+
+import numpy as np
+
 """
 probability_classifier: Extension of BaseClassifier to handle probability-based classification. Contains threshold optimisation methods.
 """
