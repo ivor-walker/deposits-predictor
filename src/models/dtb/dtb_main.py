@@ -1,5 +1,7 @@
 from models.base import BaseClassifier
 
+from sklearn.calibration import CalibratedClassifierCV
+
 """
 Class for distance to boundary methods (e.g SGD)
 """

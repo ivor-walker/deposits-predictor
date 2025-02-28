@@ -67,9 +67,15 @@ class BaseClassifier:
     """
     Tune hyperparameters 
     @param param_grid: possible hyperparameters to tune
+    @param cv: number of cross validation folds
+    @param scoring: scoring method to use
+    @param n_jobs: number of jobs to run in parallel
     """
     def tune_params(self, 
-        param_grid = None
+        param_grid = None,
+        cv = 5,
+        scoring = "f1",
+        n_jobs = -1
     ):
         if param_grid is None:
             param_grid = self.param_grid;
@@ -78,7 +84,7 @@ class BaseClassifier:
         param_grid["random_state"] = [42];
 
         # Find best hyperparameters using grid search
-        grid_search = GridSearchCV(self.model, param_grid, cv = 5, scoring = "f1", n_jobs = -1); 
+        grid_search = GridSearchCV(self.model, param_grid, cv = cv, scoring = scoring, n_jobs = n_jobs); 
         grid_search.fit(self.validate_X, self.validate_y);
         
         self.best_params = grid_search.best_params_;
