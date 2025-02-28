@@ -130,22 +130,23 @@ class Data:
         self.y = self.data["response"];
 
         # Determine split day and train/test indices
-        train_test_day_id = round(train_size * max(self.data["day_id"]));
-        train_indices = self.data["day_id"] <= split_day_id;
-        test_indices = self.data["day_id"] > split_day_id;
-        
-        # Create train sets
-        self.insensitive_train_X = self.__select_insensitive_data(self.X[train_indices]);
-        self.sensitive_train_X = self.__select_sensitive_data(self.X[train_indices]);
-        self.train_y = self.y[train_indices];
-        
-        # Create test sets
-        self.insensitive_test_X = self.__select_insensitive_data(self.X[test_indices]); 
-        self.sensitive_test_X = self.__select_sensitive_data(self.X[test_indices]);
-        self.test_y = self.y[test_indices];
+        split_day_id = round(train_size * max(self.data["day_id"]));
+        split_locs = self.data["day_id"] <= split_day_id;
+        train_indices = split_locs[split_locs == True].index; 
+        test_indices = split_locs[split_locs == False].index;
 
-        # Create validation set from training set
-        validation_indices = train_indices.sample(frac=validate_size); 
+        # Create train set
+        self.insensitive_train_X = self.__select_insensitive_data(self.X.loc[train_indices]); 
+        self.sensitive_train_X = self.__select_sensitive_data(self.X.loc[train_indices]);
+        self.train_y = self.y.loc[train_indices];
+        
+        # Create test set
+        self.insensitive_test_X = self.__select_insensitive_data(self.X.loc[test_indices]);
+        self.sensitive_test_X = self.__select_sensitive_data(self.X.loc[test_indices]);
+        self.test_y = self.y.loc[test_indices];
+
+        # Create validation set from training set by random sampling
+        validate_indices = train_indices.to_series().sample(frac=validate_size, random_state=42).index;
         self.insensitive_validate_X = self.insensitive_train_X.loc[validate_indices];
         self.sensitive_validate_X = self.sensitive_train_X.loc[validate_indices];
         self.validate_y = self.train_y.loc[validate_indices];

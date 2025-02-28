@@ -41,7 +41,7 @@ class BaseClassifier:
     """
     def train(self):
         # Fit model
-        self.model.fit(train_X, train_Y);
+        self.model.fit(self.train_X, self.train_y);
         
         # Store probability predictions for test data
         self.pred_y = self._predict(self.test_X);
@@ -74,8 +74,11 @@ class BaseClassifier:
         if param_grid is None:
             param_grid = self.param_grid;
         
+        # Add randomness state to param grid
+        param_grid["random_state"] = [42];
+
         # Find best hyperparameters using grid search
-        grid_search = GridSearchCV(self.model, param_grid, cv = 5, scoring = "f1"); 
+        grid_search = GridSearchCV(self.model, param_grid, cv = 5, scoring = "f1", n_jobs = -1); 
         grid_search.fit(self.validate_X, self.validate_y);
         
         self.best_params = grid_search.best_params_;
@@ -143,6 +146,7 @@ class BaseClassifier:
         self.f1s = np.array(
             [self._calculate_f1(precision, recall) for precision, recall in zip(self.precisions, self.recalls)]
         );
+
         # Find threshold with maximum f1
         max_f1_idx = np.argmax(self.f1s);
 
@@ -187,22 +191,37 @@ class BaseClassifier:
     @param recall: recall to calculate for
     """
     def _calculate_f1(self, precision, recall):
-        return 2 * precision * recall / (precision + recall);
+        # Prevent division by zero
+        denominator = precision + recall;
+        if denominator == 0:
+            return 0;
+
+        return 2 * precision * recall / denominator;
 
     """
     Calculate precision for a given confusion matrix
     @param confusion_matrix: confusion matrix to calculate for
     """
     def _calculate_precision(self, confusion_matrix):
-        return confusion_matrix["true_positive"] / (confusion_matrix["true_positive"] + confusion_matrix["false_positive"]);
+        # Prevent division by zero
+        denominator = confusion_matrix["true_positive"] + confusion_matrix["false_positive"];
+        if denominator == 0:
+            return 0;
+
+        return confusion_matrix["true_positive"] / denominator;
 
     """
     Calculate recall for a given confusion matrix
     @param confusion_matrix: confusion matrix to calculate for
     """
     def _calculate_recall(self, confusion_matrix):
-        return confusion_matrix["true_positive"] / (confusion_matrix["true_positive"] + confusion_matrix["false_negative"]);
-        
+        # Prevent division by zero
+        denominator = confusion_matrix["true_positive"] + confusion_matrix["false_negative"];
+        if denominator == 0:
+            return 0;
+
+        return confusion_matrix["true_positive"] / denominator;        
+
     """
     Calculate Youden's J statistic for a single given sensitivity and specificity
     @param sensitivity: sensitivity to calculate
@@ -216,4 +235,10 @@ class BaseClassifier:
     @param confusion_matrix: confusion matrix to calculate for
     """
     def _calculate_specificity(self, confusion_matrix):
-        return confusion_matrix["true_negative"] / (confusion_matrix["true_negative"] + confusion_matrix["false_positive"]);
+        # Prevent division by zero
+        denominator = confusion_matrix["true_negative"] + confusion_matrix["false_positive"];
+        if denominator == 0:
+            return 0;
+
+        return confusion_matrix["true_negative"] / denominator;
+        

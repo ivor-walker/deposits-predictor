@@ -2,6 +2,8 @@ from models.tree.dt import DecisionTree
 from models.tree.rf import RandomForest
 from models.dtb.sgd import SGD
 
+from tqdm import tqdm
+
 """
 Class representing all models. Contains objects of all models and provides methods to train and evaluate all models.
 """
@@ -41,7 +43,8 @@ class Models:
         return [model.threshold for model in self.models];
 
     """
-    Tune models
+    Tune models with a progress bar
     """
     def tune(self):
-        [model.tune_params(model.param_grid) for model in self.models];
+        for model in tqdm(self.models, desc="Tuning models"):
+            model.tune_params(model.param_grid);
