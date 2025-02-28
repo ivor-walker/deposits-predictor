@@ -1,4 +1,4 @@
-from models.tree import TreeClassifier
+from models.tree.tree_main import TreeClassifier
 
 from sklearn.tree import DecisionTreeClassifier
 
@@ -12,4 +12,11 @@ class DecisionTree(TreeClassifier):
     """
     def __init__(self, data):
         super().__init__(data);
+        self.name = "Decision Tree";
         self.model = DecisionTreeClassifier();
+
+        self.param_grid = {
+            'max_depth': [None, 5, 10, 20],
+            'min_samples_split': [2, 5, 10],
+            'min_samples_leaf': [1, 2, 4],
+        };

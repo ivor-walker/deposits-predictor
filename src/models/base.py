@@ -1,5 +1,9 @@
 import numpy as np
 
+from abc import ABC, abstractmethod
+
+from sklearn.model_selection import GridSearchCV
+
 """
 Base class for a model that can be trained and produces a probability prediction. This class handles fitting, threshold optimisation and evaluation. It also provides public wrappers for prediction.
 """
@@ -10,29 +14,39 @@ class BaseClassifier:
     """
     def __init__(self, data,
         requested_data_type = "insensitive",
-        default_threshold = 0.5
+        default_threshold = 0.5,
     ):
-        # Set X based on requested type
+        # Set X based on requested type of data
         if requested_data_type == "insensitive": 
             self.train_X = data.insensitive_train_X;
+            self.validate_X = data.insensitive_validate_X;
             self.test_X = data.insensitive_test_X;
         elif requested_data_type == "sensitive":
             self.train_X = data.sensitive_train_X;
+            self.validate_X = data.insensitive_validate_X;
             self.test_X = data.sensitive_test_X;
         else:
             raise ValueError("Unknown data type requested");
         
+        # Set ys
         self.train_y = data.train_y;
+        self.validate_y = data.validate_y;
         self.true_y = data.test_y;
-
-        self.default_threshold = default_threshold;
+        
+        # Set default decision threshold
+        self.threshold = default_threshold;
     
     """
     Train the model 
     """
     def train(self):
-        self.model.fit(self.train_X, self.train_y);
-        self.pred_y = self.predict(self.test_X);
+        # Fit model
+        self.model.fit(train_X, train_Y);
+        
+        # Store probability predictions for test data
+        self.pred_y = self._predict(self.test_X);
+        
+        # Get optimal threshold using probabilities
         self._calculate_optimal_threshold();
     
     """
@@ -49,6 +63,33 @@ class BaseClassifier:
     @abstractmethod
     def _predict(self, test_X):
         raise NotImplementedError("Predict method not implemented");
+    
+    """
+    Tune hyperparameters 
+    @param param_grid: possible hyperparameters to tune
+    """
+    def tune_params(self, 
+        param_grid = None
+    ):
+        if param_grid is None:
+            param_grid = self.param_grid;
+        
+        # Find best hyperparameters using grid search
+        grid_search = GridSearchCV(self.model, param_grid, cv = 5, scoring = "f1"); 
+        grid_search.fit(self.validate_X, self.validate_y);
+        
+        self.best_params = grid_search.best_params_;
+        self.set_params(self.best_params);
+
+    """
+    Set hyperparameters for model
+    @param hyperparameters: hyperparameters to set
+    """
+    def set_params(self, hyperparameters):
+        self.model.set_params(**hyperparameters);
+
+        # Retrain model with new hyperparameters
+        self.train();
 
     """
     Calculate optimal threshold values
@@ -60,48 +101,67 @@ class BaseClassifier:
         n = 100
     ):
         # Calculate possible thresholds
-        possible_thresholds = np.linspace(0, 1, n);
-        
+        possible_thresholds = np.linspace(0, 1, n + 1);
         # Get confusion matrices for each threshold
-        confusion_matrices = [self.calculate_confusion_matrix(threshold) for threshold in possible_thresholds];
+        confusion_matrices = [self._calculate_confusion_matrix(threshold) for threshold in possible_thresholds];
+        
+        # Get optimal threshold index
+        optimal_threshold_index = None;
 
         if optimisation_method == "f1":
-            f1_optimisation(confusion_matrices); 
-
+            optimal_threshold_index = self._f1_optimisation(confusion_matrices);
         elif optimisation_method == "youden":
-            youden_optimisation(confusion_matrices); 
-
+            optimal_threshold_index = self._youden_optimisation(confusion_matrices);
         else:
-            raise ValueError("Invalid optimisation method");
-    
+            raise ValueError("Invalid threshold optimisation method");
+        
+        self.threshold = possible_thresholds[optimal_threshold_index];
+        self.confusion_matrix = confusion_matrices[optimal_threshold_index]; 
+    """
+    Create a confusion matrix using a threshold to determine true/false
+    @return: confusion matrix
+    """
+    def _calculate_confusion_matrix(self, threshold):
+        return {
+            "true_positive": np.sum((self.pred_y >= threshold) & (self.true_y == 1)),
+            "false_positive": np.sum((self.pred_y >= threshold) & (self.true_y == 0)),
+            "true_negative": np.sum((self.pred_y < threshold) & (self.true_y == 0)),
+            "false_negative": np.sum((self.pred_y < threshold) & (self.true_y == 1))
+        };
+
     """
     Optimise threshold using F1 score
     @param confusion_matrices: confusion matrices for each threshold
+    @return: index of optimal threshold
     """
-    def f1_optimisation(self, confusion_matrices):
+    def _f1_optimisation(self, confusion_matrices):
         # Calculate precisions and recalls for each confusion matrix
-        self.precisions = [self._calculate_precision(confusion_matrix) for confusion_matrix in self.confusion_matrices]; 
-        self.recalls = [self._calculate_recall(confusion_matrix) for confusion_matrix in self.confusion_matrices];
-
+        self.precisions = [self._calculate_precision(confusion_matrix) for confusion_matrix in confusion_matrices]; 
+        self.recalls = [self._calculate_recall(confusion_matrix) for confusion_matrix in confusion_matrices];
+        
         # Calculate f1 scores for each precision and recall
         self.f1s = np.array(
             [self._calculate_f1(precision, recall) for precision, recall in zip(self.precisions, self.recalls)]
         );
-        
         # Find threshold with maximum f1
         max_f1_idx = np.argmax(self.f1s);
-        self.threshold = possible_thresholds[max_f1_idx];
 
-        # Get precision, recall and f1 for this threshold
+        # Store values at optimal threshold 
         self.precision = self.precisions[max_f1_idx];
         self.recall = self.recalls[max_f1_idx];
-        self.f1 = self.f1s[max_f1_idx]; 
+        self.f1 = self.f1s[max_f1_idx];
+        
+        # Calculate integral approximation of ROC curve
+        self.roc_integral = np.trapz(self.recalls, self.precisions);
+
+        return max_f1_idx;
 
     """ 
     Optimise threshold using Youden's J statistic
     @param confusion_matrices: confusion matrices for each threshold
+    @return: index of optimal threshold
     """
-    def youden_optimisation(self, confusion_matrices):
+    def _youden_optimisation(self, confusion_matrices):
         # Calculate sensitivities and specificities for each confusion matrix 
         self.sensitivities = [self._calculate_recall(confusion_matrix) for confusion_matrix in self.confusion_matrices];
         self.specificities = [self._calculate_specificity(confusion_matrix) for confusion_matrix in self.confusion_matrices];
@@ -110,33 +170,17 @@ class BaseClassifier:
         self.youdens = np.array(
             [self._calculate_youden(sensitivity, specificity) for sensitivity, specificity in zip(self.sensitivities, self.specificities)]
         );
-
+        
         # Find threshold with maximum Youden's J statistic
         max_youden_idx = np.argmax(self.youdens);
-        self.threshold = possible_thresholds[max_youden_idx];
         
-        # Get sensitivity, specificity and Youden's J statistic for this threshold
+        # Store values at optimal threshold
         self.sensitivity = self.sensitivities[max_youden_idx];
         self.specificity = self.specificities[max_youden_idx];
         self.youden = self.youdens[max_youden_idx];
- 
-    """
-    Create a confusion matrix using a threshold to determine true/false
-    @return: confusion matrix
-    """
-    def calculate_confusion_matrix(self,
-        threself.calhold = None 
-    ):
-        if threshold is None:
-            threshold = self.threshold;
 
-        return {
-            "true_positive": np.sum(np.logical_and(self.true_y == 1, self.pred_y >= threshold)),
-            "true_negative": np.sum(np.logical_and(self.true_y == 0, self.pred_y < threshold)),
-            "false_positive": np.sum(np.logical_and(self.true_y == 0, self.pred_y >= threshold)),
-            "false_negative": np.sum(np.logical_and(self.true_y == 1, self.pred_y < threshold))
-        };
-    
+        return max_youden_idx;        
+
     """
     Calculate F1 score for a given precision and recall 
     @param precision: precision to calculate for

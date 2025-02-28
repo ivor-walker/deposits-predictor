@@ -1,9 +1,9 @@
-from probability_classifier import ProbabilityClassifier
+from models.base import BaseClassifier
 
 """
 Class for distance to boundary methods (e.g SGD)
 """
-class DistanceToBoundary(ProbabilityClassifier):
+class DTBClassifier(BaseClassifier):
     """
     Constructor: pass data to parent class
     """
@@ -11,7 +11,7 @@ class DistanceToBoundary(ProbabilityClassifier):
         super().__init__(data);
 
     """
-    Implement predict abstract class for distance to boundary methods
+    Implement predict abstract class to produce a probability for distance to boundary methods
     """
-    def predict(self, train_X):
+    def _predict(self, train_X):
         return self.model.decision_function(train_X);

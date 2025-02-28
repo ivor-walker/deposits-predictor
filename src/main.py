@@ -7,12 +7,12 @@ import pdb
 data = Data();
 data.preprocess();
 
+breakpoint();
+
 # Modelling and Evaluation
 models = Models(data);
 
-models.train();
+models.tune();
 
 breakpoint();
 
-models.get_confusion_matrices();
-models.get_f1_scores();

@@ -117,29 +117,38 @@ class Data:
         self.data.drop(columns=unfair_predictors, inplace=True);
 
     """
-    Split data into training and test sets, based on days
+    Split data into training and test sets, based on days, and validation set, based on stratified sampling
     @param train_size: proportion of days to use for training
+    @param validate_size: proportion of training set to use for validation
     """
     def __split_data(self,
-        train_size = 0.8
+        train_size = 0.8,
+        validate_size = 0.2
     ):
         # Split predictors and response
         self.X = self.data.drop(columns=["response"]);
         self.y = self.data["response"];
 
         # Determine split day and train/test indices
-        split_day_id = round(train_size * max(self.data["day_id"]));
+        train_test_day_id = round(train_size * max(self.data["day_id"]));
         train_indices = self.data["day_id"] <= split_day_id;
         test_indices = self.data["day_id"] > split_day_id;
-
-        # Split data
+        
+        # Create train sets
         self.insensitive_train_X = self.__select_insensitive_data(self.X[train_indices]);
         self.sensitive_train_X = self.__select_sensitive_data(self.X[train_indices]);
         self.train_y = self.y[train_indices];
-
+        
+        # Create test sets
         self.insensitive_test_X = self.__select_insensitive_data(self.X[test_indices]); 
         self.sensitive_test_X = self.__select_sensitive_data(self.X[test_indices]);
         self.test_y = self.y[test_indices];
+
+        # Create validation set from training set
+        validation_indices = train_indices.sample(frac=validate_size); 
+        self.insensitive_validate_X = self.insensitive_train_X.loc[validate_indices];
+        self.sensitive_validate_X = self.sensitive_train_X.loc[validate_indices];
+        self.validate_y = self.train_y.loc[validate_indices];
 
     """
     Select data for a sensitive model: all categorical columns and some continuous
