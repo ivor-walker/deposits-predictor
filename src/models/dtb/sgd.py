@@ -12,7 +12,7 @@ class SGD(DTBClassifier):
     def __init__(self, data):
         super().__init__(data);
         self.name = "SGD";
-        self.model = SGDClassifier();
+        self.platt_wrap(SGDClassifier());
 
         self.param_grid = {
             'loss': ['hinge', 'log', 'modified_huber'],

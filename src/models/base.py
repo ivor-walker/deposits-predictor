@@ -1,7 +1,5 @@
 import numpy as np
 
-from abc import ABC, abstractmethod
-
 from sklearn.model_selection import GridSearchCV
 
 """
@@ -50,20 +48,22 @@ class BaseClassifier:
         self._calculate_optimal_threshold();
     
     """
-    Predict labels for test data
+    Produce binary predictions for given data 
+    @param test_X: data to generate predictions for
+    @return: binary predictions
     """
     def predict(self, test_X):
         return self._predict(test_X) >= self.threshold;
 
     """
-    Abstract method to predict probabilities
-    Implemented by group of model classes (e.g tree)
+    Produce probability predictions for given data
     @param test_X: data to generate predictions for
+    @return: probability predictions
     """
-    @abstractmethod
     def _predict(self, test_X):
-        raise NotImplementedError("Predict method not implemented");
-    
+        # Remove first column from result of predict_proba
+        return self.model.predict_proba(test_X)[::,1];
+
     """
     Tune hyperparameters 
     @param param_grid: possible hyperparameters to tune

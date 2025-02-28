@@ -9,9 +9,10 @@ class DTBClassifier(BaseClassifier):
     """
     def __init__(self, data):
         super().__init__(data);
-
+        
     """
-    Implement predict abstract class to produce a probability for distance to boundary methods
+    Wrap given model in a Platts scaling model to get probabilities between 0 and 1
     """
-    def _predict(self, train_X):
-        return self.model.decision_function(train_X);
+    def platt_wrap(self, model):
+        if not isinstance(model, CalibratedClassifierCV):
+            self.model = CalibratedClassifierCV(model, cv=5, method='sigmoid')
