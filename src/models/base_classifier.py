@@ -52,6 +52,17 @@ class BaseClassifier:
             "true_positive": np.sum(self.pred_y == 1) & (self.true_y == 1));
             "true_negative": np.sum(self.pred_y == 0) & (self.true_y == 0));
         };
+    
+    """
+    Calculate F1 score of the model
+    """
+    def calculate_f1(self):
+        confusion_matrix = self.calculate_confusion_matrix();
+
+        precision = self._calculate_precision(confusion_matrix);
+        recall = self._calculate_recall(confusion_matrix);
+
+        return self._calculate_f1(precision, recall);
 
     """
     Calculate F1 score for a given precision and recall 

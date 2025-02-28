@@ -75,6 +75,17 @@ class ProbabilityClassifier(BaseClassifier):
             "true_negative": np.sum(self.pred_y <= threshold) & (self.true_y == 0));
             "true_positive": np.sum(self.pred_y > threshold) & (self.true_y == 1));
         };
+    
+    """
+    Override base class f1 score to use currently optimal threshold
+    """
+    def calculate_f1_score(self):
+        confusion_matrix = self.calculate_confusion_matrix();
+
+        precision = self._calculate_precision(confusion_matrix);
+        recall = self._calculate_recall(confusion_matrix);
+
+        return self._calculate_f1(precision, recall);
 
     """
     Calculate F1 scores for all precisions and recalls

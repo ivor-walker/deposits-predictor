@@ -1,5 +1,13 @@
 from data import Data
-from model import Model
+from models import Models
 
+# Data Preprocessing
 data = Data();
-model = Model(data);
+data.preprocessing();
+
+# Modelling and Evaluation
+models = Models(data);
+models.train();
+
+models.get_confusion_matrices();
+models.get_f1_scores();
