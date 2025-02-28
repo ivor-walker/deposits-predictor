@@ -1,11 +1,11 @@
-from base_classifier import BaseClassifier
+from probability_classifier import ProbabilityClassifier
 
 from sklearn.ensemble import RandomForestClassifier
 
 """
 Class representing a random forest classifier
 """
-class RandomForest(BaseClassifier):
+class RandomForest(ProbabilityClassifier):
     """
     Constructor: initialise the model
     """

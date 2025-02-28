@@ -1,4 +1,4 @@
-from base_classifier import BaseClassifier
+from models.base_classifier import BaseClassifier
 
 from sklearn.linear_model import SGDClassifier
 
@@ -10,5 +10,5 @@ class SDG(BaseClassifier):
     Constructor: call parent constructor and initialise model
     """
     def __init__(self, data):
-        super()__init__(data);
-        self.model = SGDClassifier(random_state=0);
+        super().__init__(data);
+        self.model = SGDClassifier();

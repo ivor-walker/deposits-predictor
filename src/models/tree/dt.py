@@ -1,10 +1,11 @@
-from base_classifier import BaseClassifier
+from models.tree import TreeClassifier
 
 from sklearn.tree import DecisionTreeClassifier
+
 """
 Class for decision tree classifier
 """
-class DecisionTree(BaseClassifier):
+class DecisionTree(TreeClassifier):
     """
     Constructor: Initialise data and model
     @param data: Data to be used for training and testing

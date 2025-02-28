@@ -28,7 +28,7 @@ class Models:
     """
     def get_confusion_matrices(self):
         return {
-            name: model.calculate_confusion_matrix() 
+            name: model.confusion_matrix
             for name, model in self.models.items()
         };
 
@@ -37,6 +37,6 @@ class Models:
     """
     def get_f1_scores(self):
         return {
-            name: model.calculate_f1_score() 
+            name: model.f1 
             for name, model in self.models.items()
         };

@@ -17,28 +17,33 @@ class Data:
     """
     Preprocessing data
     """
-    def __preprocess(self):
-        self.convert_response();
+    def preprocess(self):
+        self.__convert_response();
 
-        self.convert_to_categorical();
+        self.__convert_to_categorical();
         
-        self.create_date_labels();
+        self.__merge("loan", "housing");
+        self.__merge("poutcome", "previous");
+
+        self.__create_day_ids(); 
         
-        self.merge("loan, housing");
-        self.merge("poutcome, previous");
+        self.__bin_continuous();
+        self.__bin_categorical();
+        
+        self.__encode_categorical();
 
-        self.bin_continuous();
-        self.bin_categorical();
-
-        self.remove_unfair_predictors();
-
-        self.split_data();
+        self.__remove_unfair_predictors();
+        
+        self.__split_data();
     
     """
     Convert response to binary
     """
     def __convert_response(self):
         self.data["response"] = self.data["y"].replace({"no": 0, "yes": 1});
+        
+        # Drop original response column
+        self.data.drop(columns=["y"], inplace=True);
 
     """
     Convert all string columns and some numerical to categorical (according to EDA)
@@ -56,8 +61,8 @@ class Data:
     Create inferred day IDs from changes in day of week
     """
     def __create_day_ids(self):
-        # Create helper column to mark the first row of each day
-        self.data["new_day"] = self.data["day_of_week"].diff() != 0;
+        # Create helper column to mark the first row where the day of week changes
+        self.data["new_day"] = self.data["day_of_week"] != self.data["day_of_week"].shift(1);
 
         # Create day IDs
         self.data["day_id"] = self.data["new_day"].cumsum();
@@ -89,12 +94,18 @@ class Data:
     Merge two categorical columns into one
     @param col_1: first column name to merge
     @param col_2: second column name to merge
+    @param col_suffix: suffix to add to the new column name
     """
-    def __merge(self, col_1, col_2):
-        # Add a suffix to indicate the merge
-        col_suffix = "merge";
+    def __merge(self, col_1, col_2,
+        col_suffix = "merge"
+    ):
+        new_col_name = col_1 + "_" + col_2 + "_" + col_suffix;
 
-        self.data[col_1 + "_" + col_2 + "_" + col_suffix] = self.data[col_1] + "_" + self.data[col_2];
+        # Concatenate the two columns
+        self.data[new_col_name] = self.data[col_1].astype(str) + "_" + self.data[col_2].astype(str);
+
+        # Transform the new column to categorical
+        self.data[new_col_name] = self.data[new_col_name].astype('category');
 
     """
     Remove predictors that cannot be known before the call
@@ -112,19 +123,23 @@ class Data:
     def __split_data(self,
         train_size = 0.8
     ):
+        # Split predictors and response
+        self.X = self.data.drop(columns=["response"]);
+        self.y = self.data["response"];
+
         # Determine split day and train/test indices
-        split_day_id <- round(train_size * max(self.data["day_id"]));
+        split_day_id = round(train_size * max(self.data["day_id"]));
         train_indices = self.data["day_id"] <= split_day_id;
         test_indices = self.data["day_id"] > split_day_id;
 
         # Split data
-        self.insensitive_X_train = self.select_insensitive_data(self.X[train_indices]);
-        self.sensitive_X_train = self.select_sensitive_data(self.X[train_indices]);
-        self.y_train = self.y[train_indices];
+        self.insensitive_train_X = self.__select_insensitive_data(self.X[train_indices]);
+        self.sensitive_train_X = self.__select_sensitive_data(self.X[train_indices]);
+        self.train_y = self.y[train_indices];
 
-        self.insensitive_X_test = self.select_insensitive_data(self.X[test_indices]); 
-        self.sensitive_X_test = self.select_sensitive_data(self.X[test_indices]);
-        self.y_test = self.y[test_indices];
+        self.insensitive_test_X = self.__select_insensitive_data(self.X[test_indices]); 
+        self.sensitive_test_X = self.__select_sensitive_data(self.X[test_indices]);
+        self.test_y = self.y[test_indices];
 
     """
     Select data for a sensitive model: all categorical columns and some continuous
@@ -144,4 +159,15 @@ class Data:
     def __select_insensitive_data(self, data,
         suffixes = ["group", "merge"]
     ):
-        return data.select_dtypes(include='number').join(data[[col for col in data.columns if not any([suffix in col for suffix in suffixes])]]);
+        return data[
+            [col for col in data.columns 
+            if not any(
+                 [suffix in col for suffix in suffixes]
+            )]
+        ];
+
+    """
+    One-hot encode categorical columns 
+    """
+    def __encode_categorical(self):
+        self.data = pd.get_dummies(self.data);
