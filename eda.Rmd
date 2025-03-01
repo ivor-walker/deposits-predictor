@@ -1,0 +1,1080 @@
+---
+title: "Exploratory Data Analysis"
+author: "Ivor Walker"
+output: pdf_document
+---
+```{r setup, include=FALSE}
+# Load required packages
+library(ggplot2)
+library(tidyverse)
+library(car)
+library(mgcv)
+library(pROC)
+```
+**Data Preprocessing**
+Read in the data and check the structure of the data - the separator is a semicolon.
+```{r}
+bank_data <- read.csv("src/data/bank-additional-full.csv", sep = ";")
+str(bank_data)
+```
+R reads strings as character arrays, but should be treated as factors as they represent categorical data.
+```{r}
+bank_data <- bank_data %>%
+  mutate(across(where(is.character), as.factor))
+
+str(bank_data)
+```
+
+```{r}
+# Remove duplicate columns
+clean_merged_columns <- function(bank_data) {
+  bank_data <- bank_data %>%
+    # Remove columns ending in .x
+    select(-ends_with(".x")) %>%  
+    
+    # Rename .y columns back to original
+    rename_with(~ gsub("\\.y$", "", .x), ends_with(".y"))  
+  
+  return(bank_data)
+}
+```
+Given the data is ordered by date from May 2008 to November 2010, we can use the day (of week) to recreate a partial unique date, then aggregate by it and see if there are any temporal patterns in the data.
+```{r}
+bank_data <- bank_data %>%
+  # Mark the first row of each new day
+  mutate(new_day = if_else(row_number() == 1, TRUE, day_of_week != lag(day_of_week))) %>%
+  
+  # Create a unique day ID
+  mutate(day_id = cumsum(new_day)) %>%
+
+  # Only increment the week when a new Monday starts
+  mutate(week_id = cumsum(new_day & day_of_week == "mon")) %>%
+
+  # Within each week, assign a sequential day label (e.g mon: 1)
+  group_by(week_id) %>%
+  ungroup() %>%
+
+  # Now mark the first row of a new month and create month labels
+  mutate(new_month = if_else(row_number() == 1, TRUE, month != lag(month, default = first(month)))) %>%
+  
+  mutate(month_id = cumsum(new_month))
+
+# Remove helper columns
+bank_data <- bank_data %>%
+  select(-new_day, -new_month)
+
+# Group day, week and month labels together
+bank_data <- bank_data %>%
+  mutate(date_label = paste(day_id, week_id, month_id, sep = "-"))
+
+excluded_features <- c("day_id", "week_id", "month_id", "date_label")
+
+print(summary(bank_data$day_id))
+```
+
+Finally, I will split into training and testing data and explore the training data only. Because my data has a time-series component, I choose to split the data by day ID - train on the first n days, then test on the remaining
+```{r}
+# Define split size
+train_size <- 0.8
+
+# Split data
+split_day_id <- round(train_size * max(bank_data$day_id))
+training_data <- bank_data %>%
+  filter(day_id <= split_day_id)
+test_data <- bank_data %>%
+  filter(day_id > split_day_id)
+```
+
+**Exploratory Data Analysis**
+First, we will look at the distribution of the target variable.
+```{r}
+summary(training_data$y)
+```
+Our target variable has a class imbalance in favour of the "no" class. 
+
+Next, we look at how all our features vary with the target variable.
+```{r}
+ggplot(training_data, aes(x = age, fill = y)) +
+  geom_density(alpha = 0.5) +
+  scale_x_continuous(breaks = seq(0, 100, by = 5)) +
+  labs(title = "Distribution of Age by Target Variable",
+       x = "Age",
+       y = "Density",
+       fill = "Target Variable")
+```
+The distribution of age is different between classes. The "yes" class has a higher density between 0-29 and 58+, and the "no" class has a higher density between 30-57. I create a new factor variable by binning ages into these three categories. I use 0-29 as the reference category as it is closest to the mean density of "yes".
+```{r}
+# Create age groups
+training_data <- training_data %>%
+  mutate(age_group = case_when(
+    age <= 29 ~ "0-29",
+    age >= 30 & age <= 57 ~ "30-57",
+    age >= 58 ~ "58+"
+  ))
+
+# Turn age groups into factors
+training_data$age_group <- factor(training_data$age_group, levels = c("0-29", "30-57", "58+"))
+
+# Add age to excluded features
+excluded_features <- c(excluded_features, "age")
+
+# Show distribution of age groups with a line of mean proportion and rotated x-axis labels
+ggplot(training_data, aes(x = age_group, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Age Groups by Target Variable",
+       x = "Age Group",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+Setting unemployed as the reference category allows comparison of the other job categories to a baseline.
+
+```{r}
+# Set "unemployed" as the reference category
+training_data$job <- relevel(training_data$job, ref = "unemployed")
+
+# Show distribution of job
+ggplot(training_data, aes(x = job, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Job by Target Variable",
+       x = "Job",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+Retired and students have a much higher proportion of "yes" and blue-collar has a slightly higher proportion of "no". 
+
+Education can be seen as an ordinal factor variable, so we can order the levels from lowest (illiterate) to highest (university.degree).
+```{r}
+# Order education levels
+training_data$education <- factor(training_data$education, levels = c("illiterate", "basic.4y", "basic.6y", "basic.9y", "high.school", "professional.course", "university.degree", "unknown"))
+
+# Show distribution of education with a line of mean proportion and rotated x-axis labels
+ggplot(training_data, aes(x = education, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Education by Target Variable",
+       x = "Education",
+       y = "Proportion",
+       fill = "Target Variable")
+
+# Set "illiterate" as the reference category
+training_data$education <- relevel(training_data$education, ref = "illiterate")
+
+summary(training_data$education)
+```
+Illiterate has a much higher proportion of "yes" but is an extremely small category. "yes" falls as education level increases until high school, where it increases again.
+
+```{r}
+# Show distribution of marital status
+ggplot(training_data, aes(x = marital, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Marital Status by Target Variable",
+       x = "Marital Status",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+The distribution of marital status is similar between classes.
+
+```{r}
+summary(training_data$default)
+
+missing_default <- training_data %>%
+  filter(default == "unknown")
+
+nrow(missing_default) / nrow(training_data)
+```
+This feature appears useless - there are extremely few "yes" and 21% of data on this feature is missing.
+```{r}
+# Show distribution of default
+ggplot(training_data, aes(x = default, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Default by Target Variable",
+       x = "Default",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+However, "unknown" has a much lower proportion of "Yes" than "no". People who are embarrassed to admit they have a default may be more likely to say "unknown" than "yes". I will combine unknown and "yes".
+
+```{r}
+# Combine unknown and yes
+training_data <- training_data %>%
+  mutate(default_group = if_else((default == "unknown" | default == "yes"), "unknown_or_yes", default))
+
+# Turn into factor
+training_data$default_group <- factor(training_data$default_group, levels = c("no", "unknown_or_yes"))
+
+# Add default to excluded features
+excluded_features <- c(excluded_features, "default")
+```
+
+```{r}
+# Show distribution of housing loan
+ggplot(training_data, aes(x = housing, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Housing Loan by Target Variable",
+       x = "Housing Loan",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+House loan distribution is similar between classes.
+
+```{r}
+# Show distribution of personal loan
+ggplot(training_data, aes(x = loan, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Personal Loan by Target Variable",
+       x = "Personal Loan",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+Distribution of personal loan is similar between classes.
+
+```{r}
+# Show distribution of contact method
+ggplot(training_data, aes(x = contact, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Contact Method by Target Variable",
+       x = "Contact Method",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+Cellular has a higher proportion of "yes" and telephone has a much higher proportion of "no".
+
+Month is an ordinal factor variable, so we can order the levels from January to December.
+```{r}
+# Order month levels
+training_data$month <- factor(training_data$month, levels = c("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))
+
+# Show frequency of each month
+frequency_per_month <- table(training_data$month)
+frequency_per_month
+
+# Show distribution of month and frequency of each month
+ggplot(training_data, aes(x = month, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Month by Target Variable",
+       x = "Month",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+No records took place in January or February. Although there appears to be a monthly variation in target variable, the fewer records there are in a month, the higher the proportion of "yes" which suggests that some selection bias is occurring. 
+
+Now we can see the distribution of the target variable and frequency of call by day, week, and month.
+
+```{r}
+# Calculate number of calls per day
+calls_per_day <- training_data %>% count(day_id, name = "n_calls")
+benchmark_day_calls <- max(calls_per_day$n_calls)
+
+# Add proportion of max calls per day
+calls_per_day <- calls_per_day %>%
+  mutate(proportion = n_calls / benchmark_day_calls)
+
+day_seperators <- c(80, 180)
+
+# Set seperator settings
+size <- 1.2
+color <- "blue"
+linetype <- "dashed"
+alpha <- 0.6
+
+# Show line graph of target variable and number of calls per day with a legend
+ggplot(training_data, aes(x = day_id)) +
+  
+  # Show proportion of "yes" as a line
+  stat_summary(aes(y = as.numeric(y == "yes"), color = "Proportion of 'yes'"), 
+               fun = mean, geom = "line") +
+  
+  # Show number of calls as a line
+  geom_line(data = calls_per_day, aes(x = day_id, y = n_calls / benchmark_day_calls, color = "Calls per day"), 
+            show.legend = TRUE) +
+  
+  # Show seperators
+  geom_vline(xintercept = day_seperators, linetype = linetype, color = color, size = size, alpha = alpha) +
+  
+  # Change legend labels
+  scale_color_manual(values = c("Proportion of 'yes'" = "black", "Calls per day" = "red")) +
+  
+  labs(
+    title = "Daily proportions of target variable and number of calls",
+    x = "Day ID",
+    y = "Proportion",
+    color = "Legend"
+  )
+
+```
+```{r}
+# Calculate number of calls per week
+calls_per_week <- training_data %>% count(week_id, name = "n_calls")
+benchmark_week_calls <- max(calls_per_week$n_calls)
+
+# Add proportion of max calls per week
+calls_per_week <- calls_per_week %>%
+  mutate(proportion = n_calls / benchmark_week_calls)
+
+week_seperators <- c(17, 38)
+
+# Show line graph of target variable and number of calls per week with a legend
+ggplot(training_data, aes(x = week_id)) +
+  
+  # Show proportion of "yes" as a line
+  stat_summary(aes(y = as.numeric(y == "yes"), color = "Proportion of 'yes'"), 
+               fun = mean, geom = "line") +
+  
+  # Show number of calls as a line
+  geom_line(data = calls_per_week, aes(x = week_id, y = n_calls / benchmark_week_calls, color = "Calls per week"), 
+            show.legend = TRUE) +
+  
+  # Show seperators
+  geom_vline(xintercept = week_seperators, linetype = linetype, color = color, size = size, alpha = alpha) +
+  
+  # Change legend labels
+  scale_color_manual(values = c("Proportion of 'yes'" = "black", "Calls per week" = "red")) +
+  
+  labs(
+    title = "Weekly proportions of target variable and number of calls",
+    x = "Week ID",
+    y = "Proportion",
+    color = "Legend"
+  )
+```
+
+```{r}
+# Calculate number of calls per month
+calls_per_month <- training_data %>% count(month_id, name = "n_calls")
+benchmark_month_calls <- max(calls_per_month$n_calls)
+
+# Add proportion of max calls per month
+calls_per_month <- calls_per_month %>%
+  mutate(proportion = n_calls / benchmark_month_calls)
+
+month_seperators <- c(4, 11)
+
+# Show line graph of target variable and number of calls per month with a legend
+ggplot(training_data, aes(x = month_id)) +
+  
+  # Show proportion of "yes" as a line
+  stat_summary(aes(y = as.numeric(y == "yes"), color = "Proportion of 'yes'"), 
+               fun = mean, geom = "line") +
+  
+  # Show number of calls as a line
+  geom_line(data = calls_per_month, aes(x = month_id, y = n_calls / benchmark_month_calls, color = "Calls per month"), 
+            show.legend = TRUE) +
+  
+  # Show seperators
+  geom_vline(xintercept = month_seperators, linetype = linetype, color = color, size = size, alpha = alpha) +
+  
+  # Change legend labels
+  scale_color_manual(values = c("Proportion of 'yes'" = "black", "Calls per month" = "red")) +
+  
+  labs(
+    title = "Monthly proportions of target variable and number of calls",
+    x = "Month ID",
+    y = "Proportion",
+    color = "Legend"
+  )
+```
+There are three distinct time periods in the data. From day 1-80 (week 1-17, month 1-4) there are a large and somewhat stable level of calls but a stable near-zero proportion of "yes". From day 81-180 (week 18-38, month 5-11), the number of calls decreases and becomes more unstable but the proportion of "yes" increases and becomes unstable. After day 181, the number of calls approaches zero but the proportion of "yes" rises and becomes stable.
+
+These temporal patterns suggest a change in strategy - the first period is likely a warm-up period, the second period is likely a test period, and the third period is likely a deployment period. 
+
+I will add these manually identified strategy periods, and if significant explore methods to automatically identify these periods.
+```{r}
+# Add strategy periods
+training_data <- training_data %>%
+  mutate(strategy_period = case_when(
+    day_id <= 80 ~ "1",
+    day_id > 80 & day_id <= 180 ~ "2",
+    day_id > 180 ~ "3"
+  ))
+
+# Convert to factor
+training_data$strategy_period <- factor(training_data$strategy_period, levels = c("1", "2", "3"))
+```
+
+
+```{r}
+# Sort day of week factor
+training_data$day_of_week <- factor(training_data$day_of_week, levels = c("mon", "tue", "wed", "thu", "fri"))
+
+# Show distribution of day of week
+ggplot(training_data, aes(x = day_of_week, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Day of Week by Target Variable",
+       x = "Day of Week",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+Day of week distribution is similar between classes.
+```{r}
+# Show distribution of call duration
+ggplot(training_data, aes(x = duration, fill = y)) +
+  geom_density(alpha = 0.5) +
+  scale_x_continuous(breaks = seq(0, 4000, by = 500)) +
+  labs(title = "Distribution of Call Duration by Target Variable",
+       x = "Call Duration",
+       y = "Density",
+       fill = "Target Variable")
+```
+The distribution of call duration is drastically different between classes. Calls that last less than 250 seconds have a higher density of "no" and calls that last more than 250 seconds have a higher density of "yes". I turn this continuous variable into a factor variable by binning call duration into these two categories. 
+```{r}
+# Define threshold
+call_duration_threshold <- 250
+below_call_duration <- paste("0-", call_duration_threshold, sep = "")
+above_call_duration <- paste(call_duration_threshold + 1, "+", sep = "")
+
+# Create call duration groups
+training_data <- training_data %>%
+  mutate(call_duration_group = case_when(
+    duration <= call_duration_threshold ~ below_call_duration,
+    duration > call_duration_threshold ~ above_call_duration
+  ))
+
+# Turn call duration groups into factor
+training_data$call_duration_group <- factor(training_data$call_duration_group, levels = c(below_call_duration, above_call_duration))
+```
+Note that neither of these features can be used in the final predictive model as it is not known until after the call is finished.
+```{r}
+# Add call duration group to excluded features
+excluded_features <- c(excluded_features, "duration", "call_duration_group")
+```
+
+```{r}
+# Show frequency of each campaign call
+frequency_per_campaign <- table(training_data$campaign)
+frequency_per_campaign
+```
+The frequency distribution of campaign calls is highly left-skewed: most records have less than 10 campaign calls.
+```{r}
+campaign_calls_cutoff <- quantile(training_data$campaign, 0.99)
+
+# Show distribution of campaign calls
+ggplot(training_data, aes(x = campaign, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  xlim(0, campaign_calls_cutoff) +
+  labs(title = "Distribution of Campaign Calls by Target Variable",
+       x = "Campaign Calls",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+The proportion of "yes" decreases as the number of campaign calls increases.
+
+Number of campaign calls would be most appropriately treated as an ordinal factor variable - it is not continuous, but proportion of "yes" does decrease in proportion to increases in campaign calls.
+```{r}
+# Create factor of range between min and max number of campaign calls
+min_campaign_calls <- min(training_data$campaign)
+max_campaign_calls <- max(training_data$campaign)
+campaign_levels <- as.character(min_campaign_calls:max_campaign_calls)
+training_data$campaign <- factor(training_data$campaign, levels = campaign_levels)
+```
+
+```{r}
+# 999 is the value set where no contact has been made before
+no_contact <- 999
+str_no_contact <- paste(no_contact)
+
+frequency_pdays <- table(training_data$pdays)
+frequency_pdays
+
+missing_pdays <- training_data %>%
+  filter(pdays == no_contact)
+nrow(missing_pdays) / nrow(training_data)
+```
+The vast majority of customers (96%) have not been contacted before.
+
+```{r}
+# Turn pdays into a factor
+min_pdays <- min(training_data$pdays)
+# Get max pdays that is not the no contact value
+max_pdays <- max(training_data$pdays[training_data$pdays != str_no_contact])
+
+# Turn pdays into a factor
+pdays_levels <- as.character(min_pdays:max_pdays)
+training_data$pdays <- factor(training_data$pdays, levels = c(str_no_contact, pdays_levels))
+
+# Set 999 to be the reference category
+training_data$pdays <- relevel(training_data$pdays, ref = str_no_contact)
+
+# Rename 999 to "never contacted"
+levels(training_data$pdays)[levels(training_data$pdays) == str_no_contact] <- "never contacted"
+```
+
+```{r}
+# Show distribution of pdays
+ggplot(training_data, aes(x = pdays, fill = y)) +
+  
+  geom_bar(position = "fill") +
+  
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  
+  # Add a line to show average yes proportion of all factors apart from never contacted
+  geom_hline(yintercept = mean(training_data$y[training_data$pdays != "never contacted"] == "yes"), linetype = "dashed", color = "blue") +
+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  
+  labs(title = "Distribution of Previous Days Since Contacted by Target Variable",
+       x = "Previous Days Since Contacted",
+       y = "Proportion",
+       fill = "Target Variable"
+  )
+```
+This distribution indicates that pdays may be better as a binary variable - never contacted has a lower proportion of the "Yes" class, whereas any other value has a higher proportion of the "Yes" class and this higher level appears randomly distributed around its mean (blue dotted line).
+
+```{r}
+# Create contacted variable
+training_data <- training_data %>%
+  mutate(contacted = if_else(pdays == "never contacted", 0, 1))
+training_data$contacted <- factor(training_data$contacted, levels = c(0, 1))
+
+# Show distribution of contacted
+ggplot(training_data, aes(x = contacted, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Contacted by Target Variable",
+       x = "Contacted",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+The proportion of yes is slightly lower than mean for non-contacted and much higher than mean for contacted.
+```{r}
+# For contacted rows only, extract pdays and proportion of yes
+contacted_data <- training_data %>%
+  filter(contacted == 1) %>%
+  select(pdays, y)
+contacted_data$pdays <- as.numeric(as.character(contacted_data$pdays))
+
+# Show box plot of pdays
+ggplot(contacted_data, aes(x = y, y = pdays, fill = y)) +
+  geom_boxplot() +
+  labs(title = "Distribution of pdays by y",
+       x = "y",
+       y = "pdays")
+
+```
+Within contacted records, the distribution of pdays for contacted records is similar between classes, so the exact value of pdays isn't useful.
+```{r}
+# Add pdays to excluded features
+excluded_features <- c(excluded_features, "pdays")
+```
+```{r}
+# Show distribution of previous
+ggplot(training_data, aes(x = previous, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Previous Campaign Calls by Target Variable",
+       x = "Previous Campaign Calls",
+       y = "Proportion",
+       fill = "Target Variable")
+
+# Show frequency of each previous campaign call
+frequency_previous <- table(training_data$previous)
+frequency_previous
+```
+The distribution of previous campaign calls is right-skewed: 0 campaign calls has a slightly smaller proportion of "yes" than mean, 1 has a somewhat higher proportion of "yes", and 2+ has a much higher proportion of "yes". I treat this as an ordinal factor variable.
+
+```{r}
+# Create factor of range between min and max number of previous campaign calls
+min_previous <- min(training_data$previous)
+max_previous <- max(training_data$previous)
+previous_levels <- as.character(min_previous:max_previous)
+training_data$previous <- factor(training_data$previous, levels = previous_levels)
+```
+
+```{r}
+# Set non-existent as the reference category
+training_data$poutcome <- relevel(training_data$poutcome, ref = "nonexistent")
+
+# Show distribution of previous campaign outcome
+ggplot(training_data, aes(x = poutcome, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Previous Campaign Outcome by Target Variable",
+       x = "Previous Campaign Outcome",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+Nonexistent has a slightly lower proportion of "yes" and failure has a slightly higher proportion of "yes", but success has a much higher proportion of "yes".
+
+```{r}
+# Show distribution of emp.var.rate
+ggplot(training_data, aes(x = emp.var.rate, fill = y)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of Employment Variation Rate by Target Variable",
+       x = "Employment Variation Rate",
+       y = "Density",
+       fill = "Target Variable")
+```
+Highly negative employment variation rates (up to -0.5) have higher densities of "yes" and higher employment variation rates have higher densities of "no". I keep this as a continuous variable.
+```{r}
+# Show distribution of nr.employed
+ggplot(training_data, aes(x = nr.employed, fill = y)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of Number of Employees by Target Variable",
+       x = "Number of Employees",
+       y = "Density",
+       fill = "Target Variable")
+```
+```{r}
+# Show correlation between emp.var.rate and nr.employed
+ggplot(training_data, aes(x = emp.var.rate, y = nr.employed)) +
+  geom_point() +
+  labs(title = "Correlation between Employment Variation Rate and Number of Employees",
+       x = "Employment Variation Rate",
+       y = "Number of Employees"
+  )
+```
+As expected, a strong positive relationship exists between the employment variation rate and the number of employees. Their distributions are similar: the lower the number of employees and variational rate, the higher the density of "yes" and the higher the number of employees and variational rate, the higher the density of "no". These variables are capturing the same variation, but I will include both for now alongside an interaction term.
+
+```{r}
+# Show distribution of euribor3m
+ggplot(training_data, aes(x = euribor3m, fill = y)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of Euribor 3 Month Rate by Target Variable",
+       x = "Euribor 3 Month Rate",
+       y = "Density",
+       fill = "Target Variable")
+```
+Low euribor3m rates have higher densities of "yes" and higher euribor3m rates have higher densities of "no". I keep this as a continuous variable.
+```{r}
+# Show distribution of cons.price.idx
+ggplot(training_data, aes(x = cons.price.idx, fill = y)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of Consumer Price Index by Target Variable",
+       x = "Consumer Price Index",
+       y = "Density",
+       fill = "Target Variable")
+```
+```{r}
+# Show distribution of cons.conf.idx
+ggplot(training_data, aes(x = cons.conf.idx, fill = y)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of Consumer Confidence Index by Target Variable",
+       x = "Consumer Confidence Index",
+       y = "Density",
+       fill = "Target Variable")
+```
+These variables are highly non-linear seperators of the classes but their distributions between classes are similar.
+```{r}
+# Show correlation between cons.price.idx and cons.conf.idx
+ggplot(training_data, aes(x = cons.price.idx, y = cons.conf.idx)) +
+  geom_point() +
+  labs(title = "Correlation between Consumer Price Index and Consumer Confidence Index",
+       x = "Consumer Price Index",
+       y = "Consumer Confidence Index"
+  )
+```
+There is a negative, partly linear relationship between the consumer price index and consumer confidence index. Including this interaction term in the model could reduce the amount of work needed to capture the non-linear relationship of these variables with the target variable.
+
+**Modeling**
+```{r}
+# Initial model including all features
+model_1 <- glm(y ~ ., data = training_data %>% select(-all_of(excluded_features)), family = binomial)
+```
+
+```{r}
+# Observe perfectly multicollinear variables
+alias(model_1)
+```
+The "unknown" levels of "loan" and "housing" are perfectly multicollinear, as is "poutcomesuccess" with all levels of "previous" and "poutcomefailure."
+
+```{r}
+# Merge loan and housing
+training_data <- training_data %>%
+  mutate(loan_housing_status = case_when(
+    loan == "unknown" & housing == "unknown" ~ "both_unknown",
+    loan == "yes" & housing == "yes" ~ "both_yes",
+    loan == "yes" & housing == "no" ~ "loan_yes_housing_no",
+    loan == "no" & housing == "yes" ~ "loan_no_housing_yes",
+    loan == "no" & housing == "no" ~ "both_no"
+  ))
+
+# Turn loan_housing_status into a factor
+training_data$loan_housing_status <- factor(training_data$loan_housing_status, levels = unique(training_data$loan_housing_status))
+training_data$loan_housing_status <- relevel(training_data$loan_housing_status, ref = "both_unknown")
+
+# Remove loan and housing
+excluded_features <- c(excluded_features, "loan", "housing")
+```
+Merging loan and housing removes the multicolinearity.
+```{r}
+# Create a summary table of poutcome vs previous
+poutcome_previous_summary <- training_data %>%
+  group_by(previous, poutcome) %>%
+  summarise(count = n(), .groups = "drop")
+
+# Create a stacked bar chart
+ggplot(poutcome_previous_summary, aes(x = as.factor(previous), y = count, fill = poutcome)) +
+  geom_bar(stat = "identity", position = "fill") +  # "fill" makes it a proportion-based stacked chart
+  labs(x = "Number of Previous Contacts", 
+       y = "Proportion of Poutcome", 
+       title = "Distribution of Poutcome by Previous Contacts") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1))
+```
+Poutcome is nonexistent when previous is 0, and is a mix of failure and success only when previous > 1. 
+```{r}
+# Merge poutcome and previous
+training_data <- training_data %>%
+  mutate(poutcome_previous = case_when(
+    previous == 0 & poutcome == "nonexistent" ~ "poutcome_nonexistent_previous_0",
+    previous == 1 & poutcome == "failure" ~ "poutcome_failure_previous_1",
+    previous == 1 & poutcome == "success" ~ "poutcome_success_previous_1",
+    previous == 2 & poutcome == "failure" ~ "poutcome_failure_previous_2",
+    previous == 2 & poutcome == "success" ~ "poutcome_success_previous_2",
+    previous == 3 & poutcome == "failure" ~ "poutcome_failure_previous_3",
+    previous == 3 & poutcome == "success" ~ "poutcome_success_previous_3",
+    previous == 4 & poutcome == "failure" ~ "poutcome_failure_previous_4",
+    previous == 4 & poutcome == "success" ~ "poutcome_success_previous_4",
+    previous == 5 & poutcome == "failure" ~ "poutcome_failure_previous_5",
+    previous == 5 & poutcome == "success" ~ "poutcome_success_previous_5",
+    previous == 6 & poutcome == "failure" ~ "poutcome_failure_previous_6",
+    previous == 6 & poutcome == "success" ~ "poutcome_success_previous_6",
+    previous == 7 & poutcome == "failure" ~ "poutcome_failure_previous_7",
+    previous == 7 & poutcome == "success" ~ "poutcome_success_previous_7"
+  ))
+
+# Turn poutcome_previous into a factor
+training_data$poutcome_previous <- factor(training_data$poutcome_previous, levels = unique(training_data$poutcome_previous))
+training_data$poutcome_previous <- relevel(training_data$poutcome_previous, ref = "poutcome_nonexistent_previous_0")
+
+# Remove previous and poutcome
+excluded_features <- c(excluded_features, "previous", "poutcome")
+```
+Merging poutcome and previous removes the multicolinearity.
+```{r}
+# Fit model again
+model_2 <- glm(y ~ ., data = training_data %>% select(-all_of(excluded_features)), family = binomial)
+
+# Observe perfectly multicollinear variables
+alias(model_2)
+```
+All perfectly multicollinear variables have been removed.
+```{r}
+summary(model_2)
+Anova(model_2)
+```
+As expected, marital and loan status are not significant.
+
+Unexpectedly, job and age group approached significance and education was clearly insignificant. No individual levels of these factors were significant.
+```{r}
+# Check multicollinearity
+vif(model_2)
+```
+emp.var.rate, cons.price.idx, euribor3m, nr.employed, contacted and poutcome_previous inflate standard errors so are likely multicolinear.
+emp.var.rate is probably not deemed significant because it is structurally multicolinear with nr.employed, so I will retain it in a predictive model.
+
+Job, education and age_group have no multicolinearity.
+```{r}
+# Get table of education level, frequency and proportion of yes
+education_summary <- training_data %>%
+  group_by(education) %>%
+  summarise(count = n(), proportion_yes = mean(y == "yes"), .groups = "drop")
+```
+Education needs to be relevelled - illiterate only has 12 observations but is the base level, so has a very high standard error which makes the other levels look insignificant. A more appropriate base level would be "basic.4y".
+```{r}
+education_levels <- c("basic.4y", "basic.6y", "basic.9y", "high.school", "professional.course", "university.degree", "illiterate", "unknown")
+training_data$education <- factor(training_data$education, levels = education_levels)
+```
+The other poorly performng factors are appropriately levelled.
+
+Despite campaign being significant, no level past 8 is significant so I suspect the variable needs to be recast.
+```{r}
+# Treat campaign as a numeric
+training_data$campaign <- as.numeric(as.character(training_data$campaign))
+
+# Restrict campaign cutoff
+campaign_calls_cutoff <- 10
+
+# Show distribution of campaign
+ggplot(training_data, aes(x = campaign, fill = y)) +
+  geom_density(alpha = 0.5) +
+  xlim(0, campaign_calls_cutoff) +
+  labs(title = "Distribution of Campaign Calls by Target Variable",
+       x = "Campaign Calls",
+       y = "Density",
+       fill = "Target Variable")
+```
+Treating campaign as a continuous variable isn't appropriate. The densities of "yes" at 1, 2, 3, 4 is higher than "no" but decreasing, whereas at 5+ densities of "no" are similarly higher than "yes".
+```{r}
+# Add the continuous variable to variables to exclude
+excluded_features <- c(excluded_features, "campaign")
+
+# Try binning into 1-8 and 9+
+training_data <- training_data %>%
+  mutate(campaign_group = case_when(
+    campaign <= 8 ~ as.character(campaign),
+    campaign > 8 ~ "9+"
+  ))
+
+# Turn into factor
+training_data$campaign_group <- factor(training_data$campaign_group, levels = c(as.character(1:8), "9+"))
+
+# Show distribution of campaign group
+ggplot(training_data, aes(x = campaign_group, fill = y)) +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = mean(training_data$y == "yes"), linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Distribution of Campaign Group by Target Variable",
+       x = "Campaign Group",
+       y = "Proportion",
+       fill = "Target Variable")
+```
+Rebinning campaign is a better reflection of the underlying distribution than treating it as continuous or giving each count its own level. 
+
+Similarly, the merged variable poutcome_previous has no significant levels past a previous count of 4. I will rebin this variable as well.
+```{r}
+# Turn previous into numeric
+training_data$previous <- as.numeric(as.character(training_data$previous))
+# Rebin poutcome_previous into 1, 2, 3, 4 and 5+
+training_data <- training_data %>%
+  mutate(poutcome_previous = case_when(
+    previous == 0 & poutcome == "nonexistent" ~ "poutcome_nonexistent_previous_0",
+    previous == 1 & poutcome == "failure" ~ "poutcome_failure_previous_1",
+    previous == 1 & poutcome == "success" ~ "poutcome_success_previous_1",
+    previous == 2 & poutcome == "failure" ~ "poutcome_failure_previous_2",
+    previous == 2 & poutcome == "success" ~ "poutcome_success_previous_2",
+    previous == 3 & poutcome == "failure" ~ "poutcome_failure_previous_3",
+    previous == 3 & poutcome == "success" ~ "poutcome_success_previous_3",
+    previous == 4 & poutcome == "failure" ~ "poutcome_failure_previous_4",
+    previous == 4 & poutcome == "success" ~ "poutcome_success_previous_4",
+    previous >= 5 & poutcome == "failure" ~ "poutcome_failure_previous_5+",
+    previous >= 5 & poutcome == "success" ~ "poutcome_success_previous_5+"
+  ))
+
+# Turn poutcome_previous into a factor
+training_data$poutcome_previous <- factor(training_data$poutcome_previous, levels = unique(training_data$poutcome_previous))
+training_data$poutcome_previous <- relevel(training_data$poutcome_previous, ref = "poutcome_nonexistent_previous_0")
+```
+cons.price.idx and cons.conf.idx were highly significant despite their non-linear relationship with the target. 
+
+Day of month was significant at every level, but no strategy period factor level was significant. A better way to capture this non-linear relationship would be a GAM including a smooth of day_id.
+
+Distribution of the target variable did not vary between levels of week, but every level of day of week was identified as highly significant. Similar to long-term, hort-term temporal patterns are likely not being captured properly, but day_id's smooth should capture these also.
+```{r}
+# Zoom in on daily data
+zoom_interval_day <- c(200, 250)
+
+n_days_in_week <- 5
+new_weeks <- seq(1, max(training_data["day_id"]), by = n_days_in_week)
+
+# Show daily proportions of target variable and number of calls
+ggplot(training_data, aes(x = day_id)) +
+  
+  # Show proportion of "yes" as a line
+  stat_summary(aes(y = as.numeric(y == "yes"), color = "Proportion of 'yes'"), 
+               fun = mean, geom = "line") +
+  
+  # Show number of calls as a line
+  geom_line(data = calls_per_day, aes(x = day_id, y = n_calls / benchmark_day_calls, color = "Calls per day"), 
+            show.legend = TRUE) +
+  
+  # Change legend labels
+  scale_color_manual(values = c("Proportion of 'yes'" = "black", "Calls per day" = "red")) +
+  
+  # Limit x-axis
+  xlim(zoom_interval_day) +
+  
+  # Show seperators indicating new week
+  geom_vline(xintercept = new_weeks, linetype = linetype, color = color, size = size, alpha = alpha) +
+
+  labs(
+    title = "Daily proportions of target variable and number of calls",
+    x = "Day ID",
+    y = "Proportion",
+    color = "Legend"
+  )
+```
+There appear to be no obvious daily patterns in the data.
+
+I will create a GAM model with a smooth of day_id and all economic variables, a
+```{r}
+# Seperate linear and nonlinear predictors
+nonlinear_predictors <- c("day_id", "cons.price.idx", "cons.conf.idx", "euribor3m", "nr.employed", "emp.var.rate")
+
+# Remove day_id from excluded features
+excluded_features <- setdiff(excluded_features, "day_id")
+
+get_gam_formula <- function(nonlinear_predictors, training_data, excluded_features, interactions = NA, ks = NA, k_selection = "NA") {
+  # Calculate which predictors are linear
+  linear_predictor_terms <- setdiff(names(training_data), c("y", excluded_features, nonlinear_predictors))
+
+  # Get number of unique values for each nonlinear predictor as maximum number of knots
+  if(k_selection == "unique") {
+    ks <- sapply(training_data %>% select(all_of(nonlinear_predictors)), function(x) length(unique(x)))
+    ks <- as.vector(ks)
+    
+  # Get user-defined number of knots
+  } else if(!all(is.na(ks))) {
+    ks <- ks
+    
+  # Default to n knots
+  } else {
+    default_knots <- 10
+    ks <- rep(default_knots, length(nonlinear_predictors))
+  }
+
+  # Convert unique values to array
+  nonlinear_predictor_terms <- paste0("s(", nonlinear_predictors, ", k = ", ks, ")")
+  
+  # Create a formula for the model
+  form_str <- paste(
+    "y ~ ", 
+    paste(nonlinear_predictor_terms, collapse = " + "),
+    " + ",
+    paste(linear_predictor_terms, collapse = " + ")
+  )
+  
+  # Add interactions if they exist (check if any elements of interactions aren't NA)
+  if (!all(is.na(interactions))) {
+    form_str <- paste(form_str, " + ", paste(interactions, collapse = " + "))
+  }
+
+  gam_formula <- as.formula(form_str)
+  
+  return(gam_formula)
+}
+
+
+
+gam_formula <- get_gam_formula(nonlinear_predictors, training_data, excluded_features, ks = c(20, 10, 10, 20, 10, 9))
+```
+```{r}
+# Fit model
+model_3 <- gam(
+  gam_formula, 
+  data = training_data %>% select(-all_of(excluded_features)),
+  family = binomial(link = "logit")
+)
+```
+```{r}
+summary(model_3)
+
+
+# Show smooth on all non-linear plots
+par(mfrow = c(3, 2))
+plot(model_3)
+
+# Show diagnostic plots
+par(mfrow = c(1, 1))
+
+gam.check(model_3)
+```
+
+
+Applying a smooth to day_id and all economic variables renders all levels of month insignificant except for May, so is effectively capturing the long-term temporal structure of the data. Day_of_week remains significant, so the short-term temporal structure of the data is not fully captured by the smooth of day_id. Any further time series exploration is out of the scope of this analysis, but I expect more the advanced machine learning algorithms to use these day IDs to capture this structure.
+
+cons.price.idx, cons.conf.idx, emp.var.rate, nr.employed could be modelled as linear predictors, but day_id and euribor3m are better modelled as non-linear predictors.
+```{r}
+# Redefine non-linear predictors
+nonlinear_predictors <- c("day_id", "euribor3m")
+ks <- c(20, 20)
+gam_formula <- get_gam_formula(nonlinear_predictors, training_data, excluded_features)
+```
+
+```{r}
+# Fit model
+model_4 <- gam(
+  gam_formula, 
+  data = training_data %>% select(-all_of(excluded_features)),
+  family = binomial(link = "logit")
+)
+```
+```{r}
+# Model diagnostics
+summary(model_4)
+plot(model_4)
+```
+
+Modelling those economic variables as linear makes month significant again. This suggests that there are some interactions between these economic variables that capture some temporal variance, which makes sense as these economic variables are likely in-part capturing the business cycle. Unfortunately fitting interaction terms is too computationally complex, so I keep the non-linear model.
+
+```{r}
+# Choose non-linear model as final model
+model_final <- model_3
+```
+I plot an ROC curve to determine a good threshold for classification.
+```{r}
+# Plot ROC curve
+roc_obj <- roc(training_data$y, predict(model_final, training_data, type = "response"))
+plot(roc_obj)
+
+# Determine threshold
+best_coords <- coords(roc_obj, "best")
+best_threshold <- best_coords["threshold"][1,1]
+```
+I calculate the F1 score and plot a confusion matrix to evaluate the model.
+```{r}
+# Calculate F1 score
+f1_score <- function(model, data) {
+  # Predict on data
+  predictions <- predict(model, data, type = "response")
+  
+  # Convert to binary
+  predictions <- ifelse(predictions > best_threshold, "yes", "no")
+  
+  # Calculate confusion matrix
+  confusion_matrix <- table(data$y, predictions)
+  
+  # Calculate precision and recall
+  precision <- confusion_matrix["yes", "yes"] / sum(confusion_matrix["yes", ])
+  recall <- confusion_matrix["yes", "yes"] / sum(confusion_matrix[, "yes"])
+  
+  # Calculate F1 score
+  f1 <- 2 * (precision * recall) / (precision + recall)
+  return(f1)
+}
+
+# Calculate F1 score for final model
+f1_score(model_final, training_data)
+
+# Plot confusion matrix
+table(training_data$y, predict(model_final, training_data, type = "response") > best_threshold)
+```
+The confusion matrix shows that the model predicts "yes" too often when it should be predicting "no".
+
+Significant linear predictors are:
+-contact
+-day_of_week
+-default_group
+-contacted
+-poutcome_previous
+-campaign_group
+
+Insignificant linear predictors are:
+-job
+-education
+-age_group
+-loan_housing_status
+
+Significant non-linear predictors are:
+-day_id
+-euribor3m
+
+Insignificant non-linear predictors are:
+-emp.var.rate
+-cons.price.idx
+-cons.conf.idx
+-nr.employed
