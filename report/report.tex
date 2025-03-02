@@ -1,0 +1,321 @@
+\documentclass[9pt]{article}
+
+\usepackage{booktabs}
+
+\usepackage{geometry}
+\geometry{a4paper, margin=0.5cm, top=0.5cm}
+
+\usepackage{hyperref}
+
+\usepackage{graphicx}
+\usepackage{subcaption}
+
+\setcounter{secnumdepth}{0}
+
+\usepackage{sidecap}
+
+\begin{document}
+
+% The goal is to predict if a customer will make a fixed term savings deposit or not. This is indicated by the attribute y, where yes is a success (customer makes a deposit) and no is a failure (customer does not make a deposit). 
+% You will use data from the bank marketing data on UCI Machine Learning Repository, based on the paper by Sérgio Moro, P. Cortez, P. Rita.
+% The full dataset contains data for a marketing campaign for a fixed term savings product. You will use the dataset with additional economic indicator variables. The data contains 41188 observations of 20 features and an additional outcome column, the file size is 5.6MB. The dataset is also available on studres.
+
+% Summary Report - Present your findings in a summary report aimed at readers who are not machine learning experts. The report should be no longer than one page. You may include an appendix of 1 additional page containing no more than 4 figures and tables.
+
+% • The summary report should present your solution as described in the lectures. For example, explaining how your model meets the task (look at the big picture), the performance of the model on data unseen during training, the reasons for your major decisions, the details of your final model and any insights gained either from the issues encountered or into which factors are most important.
+% • The CS student handbook contains writing guidance and coursework report writing tips.
+% • You should be able to understand what a figure or table in a report shows from just the figure and its associated caption. Only include relevant figures and tables, which should be referenced and explained
+% in the text.
+% • Figures and tables should be of publishable quality. Think, if this report was printed in black and white at A4 size would this figure and any text contained in it be understandable.
+% • Labels should be full names, rather than variable names used in code. Numbers should be given to a sensible precision, for example 3 or 4 significant figures and include units when relevant.
+% • Two models using the same algorithm can give very different results depending on the data (observations and features) used for training and hyperparameters selected. When describing a final machine learning model you should aim to give enough details so that it could be reproduced.
+% • You may use any document preparation software you wish for the summary report pdf, e.g. word, latex, pages, markdown. However, the code to produce any figures or tables should be included in your
+% notebook.
+% • The one page appendix can only include figures or tables, it should not include additional text beyond captions for figures or tables
+\begin{titlepage}
+    \vspace*{\fill}    
+    \begin{center}
+        {\Huge \textbf{
+            Summary Report: A Classification Approach to Predicting Fixed Term Savings Deposits 
+        }} \\[1cm]
+        {\Large \textbf{
+            Ivor Walker 
+        }} \\[1cm]
+    \end{center}
+    \vspace*{\fill} 
+\end{titlepage}
+
+\newpage
+\section{Introduction}
+\vspace{-0.25cm}
+Predicting the outcome of a marketing campaign in advance can reduce calls to customers unlikely to subscribe and improve efficiency. The modelling process itself provides insights into factors that influence customer decisions that can be used to improve products and marketing alike. I predict whether a customer makes a deposit in advance of a marketing campaign by fitting three binary classifiers to the bank marketing dataset and evaluate their performance on unseen data.
+
+\vspace{-0.25cm}
+\section{Methodology}
+\vspace{-0.25cm}
+% Data
+This dataset comprises of categorical, numerical and economic predictors. I bin some categorical and all numerical variables to create a "sensitive" dataset on which a sensitive linear model could be trained. During Exploratory Data Analysis (EDA), I discovered a non-linear time trend \ref{fig:weekly_calls_successes} and that economic variables varied significantly but non-linearily with the response. I fit an exploratory Generalised Additive Model (GAM) to the sensitive dataset to model these linear and non-linear variables together. Among the linear variables, I found that method of contact, past marketing campaign outcomes, credit default and number of times contacted were significant predictors of success. \ref{table:gam_summary} Among the non-linear variables, I found that the time component and interest rates were significant - the other economic variables were likely not significant as they were determined by interest rates and stage in the business cycle. I applied my chosen models to an "insensitive" dataset, where all numerical variables were presented as continuous and all levels of categorical variables were included, because these models can infer the correct bins themselves. To genuinely evaluate the model's performance on future data, I train the model on the first 260 days (93\% of data) and evaluate its performance on predicting remaining 130 days (7\% of data). Because the most recent data contains the fewest records \ref{fig:weekly_calls_successes}, this split needs to be far enough forward to give the model some of the most recent temporal patterns but far enough back to create a large enough test set and avoid overfitting. It is a reasonable compromise but still causes some overfitting as the split departs from the 80/20 rule of thumb.
+
+% Models
+I used Stochastic Gradient Descent (SGD), Decision Tree (DT) and Random Forest (RF) classifiers as they are not computationally intensive to train on large datasets such as ours. They have characteristics that do not change with the dataset (hyperparameters) that can be tuned to improve performance. For each classifier, I defined a "parameter grid" of the possible values of each parameter, trained models on a randomly chosen subset of the training dataset with every combination of hyperparameters, and used the hyperparameters of the best performing model. Tuning models using the entire training set, a larger parameter grid or in an iterative manner (i.e tuning, then changing parameter grid based on values selected in previous tuning) could improve performance but were computationally infeasible. These models produce a probability of success, so after training I choose a threshold to maximise performance on the training set. My measures of performance are the integral approximations of the Receiver Operating Characteristic Curve (integral\_ROC) and the F1 score, which I chose because they are robust to the class imbalance in the dataset. F1 measures the performance of a model at its optimal decision threshold, while ROC integral measures the performance of a model across all possible thresholds.
+
+
+\vspace{-0.25cm}
+\section{Results}
+\vspace{-0.25cm}
+SGD appears to have the best performance but it produces probability predictions between 0.23 and 0.69 yet its decision threshold is 0 - unlike DT and RF, it simply predicts that a customer will subscribe no matter the data, so has failed to learn anything from the training data.
+RF is less likely to produce false positives than DT, but this is outweighed by its comparative inability to identify when a consumer will subscribe. RF performs best across all thresholds, but DT performs best at the optimal threshold so I select it as the best model so far.
+SGD fails in the same way within the training data, but RF and DT extremely overfit to the training data. Removing the day\_id variable improves the performance of both models on test data, but these models still overfit extremely on training data. 
+
+\vspace{-0.25cm}
+\section{Discussion}
+\vspace{-0.25cm}
+% -SGD fails to learn from the data
+SGD selected the least complex parameters possible and selected "modified\_huber" as its loss function where I would have expected it to choose "log\_loss". Huber is more useful in classification cases where differences between classes are marginal, unlike "log\_loss" where differences between classes are more distributed. The high proportion of categorical data may have guided SGD towards a more marginal classification outcome than in a dataset with less categorical data. I declined to tune the Platt scaler wrapped around the SGD due to computational limitations, but creating a parameter grid for it could also widen the probability window. SGD is a simpler model than RF and DT and could benefit from being trained on the simpler "sensitive" dataset but declined to do so due to computational restrictions.
+
+% -Not using temporal data properly
+The improvement in performance from removing the day\_id indicates that RF and DT are ignoring the temporal component of the data. A temporal component may have been too complex for these models to learn as these models are not designed for time series data. 
+
+% -Overfitting
+There is some inherent overfitting in the model due to the split of the training and test data. There may be some confounding variables causing these two models to overfit, but EDA identified no single variable that overinfluenced the process in the sensitive dataset. Training all models on the "sensitive" dataset may reduce overfitting but would require more computational resources than I have available. Identifying the confounding variables would also be useful but require re-tuning and training the models on all possible combinations of columns, so is computationally infeasible.
+
+\vspace{-0.25cm}
+\section{Conclusion}
+\vspace{-0.25cm}
+The best working model is RF with day\_id removed, but it is worse than a classifier predicting that all customers will subscribe due to extreme overfitting and an inability to learn the temporal component of the data. A more complex model designed for time series such as a Long Short Term Memory (LSTM) network could learn the temporal component. Training on "sensitive" data or identifying the confounding variables could reduce overfitting. Predictive performance can be improved more generally by improving hyperparameter tuning. However, all these changes would require more computational resources than I have available.
+
+\newpage
+\vspace{-0.25cm}
+\section{Appendix}
+\vspace{-0.8cm}
+\begin{SCfigure}[2][htbp]
+    \centering
+    \includegraphics[width=0.8\textwidth]{img/weekly\_calls\_successes.png}
+    \caption{Total calls made per week and the number of successes. There appear to be three segments: weeks 1-17 has a high number of calls and low successes, weeks 18-38 has a medium but unstable number of calls and successes, and after week 39 the number of calls are low but successes are high.}
+    \label{fig:weekly_calls_successes}
+\end{figure}
+
+% ## Family: binomial
+% ## Link function: logit
+% ##
+% ## Formula:
+% ## y ~ s(day_id, k = 20) + s(cons.price.idx, k = 10) + s(cons.conf.idx,
+% ## k = 10) + s(euribor3m, k = 20) + s(nr.employed, k = 10) +
+% ## s(emp.var.rate, k = 9) + job + marital + education + contact +
+% ## month + day_of_week + age_group + default_group + strategy_period +
+% ## contacted + loan_housing_status + poutcome_previous + campaign_group
+% ##
+% ## Parametric coefficients:
+% ## Estimate Std. Error z value
+% ## (Intercept) -2.394242 0.936097 -2.558
+% ## jobadmin. -0.002988 0.118348 -0.025
+% ## jobblue-collar -0.117057 0.123381 -0.949
+% ## jobentrepreneur -0.032926 0.153242 -0.215
+% ## jobhousemaid -0.129471 0.169402 -0.764
+% ## jobmanagement -0.024877 0.133155 -0.187
+% ## jobretired 0.082395 0.147790 0.558
+% ## jobself-employed -0.012704 0.149285 -0.085
+% ## jobservices -0.063893 0.131015 -0.488
+% ## jobstudent 0.126653 0.152736 0.829
+% ## jobtechnician -0.035370 0.123527 -0.286
+% ## jobunknown -0.352975 0.247290 -1.427
+% ## maritalmarried 0.020353 0.063302 0.322
+% ## maritalsingle 0.088929 0.070535 1.261
+% ## maritalunknown 0.494205 0.365519 1.352
+% ## educationbasic.6y 0.146698 0.106955 1.372
+% ## educationbasic.9y -0.002124 0.085679 -0.025
+% ## educationhigh.school -0.001562 0.084108 -0.019
+% ## educationprofessional.course 0.007323 0.093740 0.078
+% ## educationuniversity.degree 0.055403 0.084321 0.657
+% ## educationilliterate 0.964031 0.641075 1.504
+% ## educationunknown 0.119821 0.111731 1.072
+% ## contacttelephone -0.584382 0.078194 -7.474
+% ## monthapr 0.623069 0.711962 0.875
+% ## monthmay -0.426163 0.887824 -0.480
+% ## monthjun -0.869898 1.020574 -0.852
+% ## monthjul -0.265757 1.000979 -0.265
+% ## monthaug -0.732983 1.446366 -0.507
+% ## monthsep 2.503418 1.939085 1.291
+% ## monthoct 0.905894 2.480913 0.365
+% ## monthnov 1.686447 2.080532 0.811
+% ## monthdec 1.358307 1.968085 0.690
+% ## day_of_weektue 0.262778 0.060713 4.328
+% ## day_of_weekwed 0.361502 0.061391 5.889
+% ## day_of_weekthu 0.195202 0.061720 3.163
+% ## day_of_weekfri 0.229285 0.063315 3.621
+% ## age_group30-57 -0.093161 0.057009 -1.634
+% ## age_group58+ 0.092944 0.105106 0.884
+% ## default_groupunknown_or_yes -0.173089 0.058343 -2.967
+% ## strategy_period2 -0.109539 1.011989 -0.108
+% ## strategy_period3 -0.223127 1.074317 -0.208
+% ## contacted1 1.429688 0.284590 5.024
+% ## loan_housing_statusboth_no 0.134093 0.129002 1.039
+% ## loan_housing_statusloan_no_housing_yes 0.103597 0.128500 0.806
+% ## loan_housing_statusloan_yes_housing_no 0.133053 0.146713 0.907
+% ## loan_housing_statusboth_yes 0.054561 0.140247 0.389
+% ## poutcome_previouspoutcome_failure_previous_1 -0.380501 0.063879 -5.957
+% ## poutcome_previouspoutcome_success_previous_1 -0.263037 0.298216 -0.882
+% ## poutcome_previouspoutcome_success_previous_2 -0.102094 0.327767 -0.311
+% ## poutcome_previouspoutcome_failure_previous_2 -0.774799 0.176044 -4.401
+% ## poutcome_previouspoutcome_success_previous_3 -0.477425 0.408479 -1.169
+% ## poutcome_previouspoutcome_failure_previous_3 -0.790794 0.343544 -2.302
+% ## poutcome_previouspoutcome_failure_previous_4 -1.860602 0.843022 -2.207
+% ## poutcome_previouspoutcome_success_previous_4 0.863230 0.815813 1.058
+% ## poutcome_previouspoutcome_success_previous_5+ 0.377720 1.141051 0.331
+% ## campaign_group2 0.000620 0.045882 0.014
+% ## campaign_group3 0.085693 0.059644 1.437
+% ## campaign_group4 0.056044 0.081313 0.689
+% ## campaign_group5 -0.163918 0.109793 -1.493
+% ## campaign_group6 -0.116668 0.139192 -0.838
+% ## campaign_group7 -0.262236 0.187494 -1.399
+% ## campaign_group8 -0.470007 0.257418 -1.826
+% ## campaign_group9+ -0.327875 0.146640 -2.236
+% ##
+% ## Pr(>|z|)
+% ## (Intercept) 0.010537 *
+% ## jobadmin. 0.979855
+% ## jobblue-collar 0.342749
+% ## jobentrepreneur 0.829876
+% ## jobhousemaid 0.444699
+% ## jobmanagement 0.851795
+% ## jobretired 0.577176
+% ## jobself-employed 0.932180
+% ## jobservices 0.625781
+% ## jobstudent 0.406976
+% ## jobtechnician 0.774622
+% ## jobunknown 0.153473
+% ## maritalmarried 0.747816
+% ## maritalsingle 0.207392
+% ## maritalunknown 0.176355
+% ## educationbasic.6y 0.170192
+% ## educationbasic.9y 0.980222
+% ## educationhigh.school 0.985182
+% ## educationprofessional.course 0.937732
+% ## educationuniversity.degree 0.511152
+% ## educationilliterate 0.132640
+% ## educationunknown 0.283536
+% ## contacttelephone 7.81e-14 ***
+% ## monthapr 0.381496
+% ## monthmay 0.631221
+% ## monthjun 0.394013
+% ## monthjul 0.790626
+% ## monthaug 0.612312
+% ## monthsep 0.196693
+% ## monthoct 0.715003
+% ## monthnov 0.417604
+% ## monthdec 0.490089
+% ## day_of_weektue 1.50e-05 ***
+% ## day_of_weekwed 3.90e-09 ***
+% ## day_of_weekthu 0.001563 **
+% ## day_of_weekfri 0.000293 ***
+% ## age_group30-57 0.102231
+% ## age_group58+ 0.376542
+% ## default_groupunknown_or_yes 0.003010 **
+% ## strategy_period2 0.913804
+% ## strategy_period3 0.835469
+% ## contacted1 5.07e-07 ***
+% ## loan_housing_statusboth_no 0.298590
+% ## loan_housing_statusloan_no_housing_yes 0.420128
+% ## loan_housing_statusloan_yes_housing_no 0.364461
+% ## loan_housing_statusboth_yes 0.697251
+% ## poutcome_previouspoutcome_failure_previous_1 2.58e-09 ***
+% ## poutcome_previouspoutcome_success_previous_1 0.377758
+% ## poutcome_previouspoutcome_success_previous_2 0.755434
+% ## poutcome_previouspoutcome_failure_previous_2 1.08e-05 ***
+% ## poutcome_previouspoutcome_success_previous_3 0.242490
+% ## poutcome_previouspoutcome_failure_previous_3 0.021343 *
+% ## poutcome_previouspoutcome_failure_previous_4 0.027310 *
+% ## poutcome_previouspoutcome_success_previous_4 0.290000
+% ## poutcome_previouspoutcome_success_previous_5+ 0.740623
+% ## campaign_group2 0.989219
+% ## campaign_group3 0.150792
+% ## campaign_group4 0.490670
+% ## campaign_group5 0.135445
+% ## campaign_group6 0.401929
+% ## campaign_group7 0.161921
+% ## campaign_group8 0.067873 .
+% ## campaign_group9+ 0.025357 *
+% ## ---
+% ## Signif. codes: 0 ’***’ 0.001 ’**’ 0.01 ’*’ 0.05 ’.’ 0.1 ’ ’ 1
+% ##
+% ## Approximate significance of smooth terms:
+% ## edf Ref.df Chi.sq p-value
+% ## s(day_id) 16.310 17.636 165.010 <2e-16 ***
+% ## s(cons.price.idx) 1.000 1.000 0.149 0.700
+% ## s(cons.conf.idx) 5.348 5.785 8.435 0.282
+% ## s(euribor3m) 18.720 18.933 142.050 <2e-16 ***
+% ## s(nr.employed) 1.000 1.000 1.824 0.177
+% ## s(emp.var.rate) 1.940 2.012 2.013 0.405
+% ## ---
+% ## Signif. codes: 0 ’***’ 0.001 ’**’ 0.01 ’*’ 0.05 ’.’ 0.1 ’ ’ 1
+% ##
+% ## R-sq.(adj) = 0.199 Deviance explained = 20.5%
+% ## UBRE = -0.47308 Scale est. = 1 n = 40040
+
+\begin{table}[ht]
+    \centering
+    \resizebox{\textwidth}{!}{ 
+        \begin{tabular}{|c|c|c|c|}
+            \hline
+            \textbf{Significant predictor} & \textbf{Baseline} \\
+            
+            \hline
+            Contacted by telephone & Contacted by cellphone \\
+            
+            \hline
+            Day is Tuesday & Day is Monday \\
+            Day is Wednesday & \'' \\
+            Day is Thursday & \'' \\
+            Day is Friday & \'' \\
+
+            \hline
+            Customer has defaulted or unknown credit status & Customer has no credit default \\
+
+            \hline
+            Customer has been contacted in a previous campaign & Customer has not been contacted before \\
+
+            \hline
+            Previous campaign failed and customer was contacted once & User was not contacted in a previous campaign \\
+            Previous campaign failed and customer was contacted twice & \'' \\
+            Previous campaign failed and customer was contacted thrice & \'' \\
+            Previous campaign failed and customer was contacted four times & \'' \\
+
+            \hline
+            Customer was contacted over nine times in the campaign & Customer was contacted once \\
+            
+            \hline
+            \textbf{Estimated effect} & \textbf{Standard error} \\
+            
+            \hline
+            0.56 & 0.04 \\
+
+            \hline
+            1.30 & 0.08 \\
+            1.44 & 0.09 \\
+            1.22 & 0.08 \\
+            1.26 & 0.08 \\
+
+            \hline
+            0.84 & 0.05 \\
+
+            \hline
+            4.18 & 1.19 \\
+
+            \hline
+            0.68 & 0.04 \\
+            0.46 & 0.08 \\
+            0.45 & 0.16 \\
+            0.16 & 0.13 \\
+
+            \hline
+            0.72 & 0.11 \\
+            \hline
+
+        \end{tabular}
+    } 
+    \caption{Summary of statistically significant linear predictors from the exploratory model. The estimated effect is the change in the odds (coverted from log-odds) of success compared to the baseline, e.g customers contacted by telephone are 0.56 times as likely to subscribe compared to customers contacted via cell. The standard error is the uncertainty in this estimate. These predictors have sufficiently large effects and low uncertainty to be considered significant.}
+
+    \label{table:gam_summary}
+\end{table}
+
+\end{document}
