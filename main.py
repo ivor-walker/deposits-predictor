@@ -2,7 +2,7 @@ from src.data_main import Data
 from src.models_main import Models
 
 """
-Main script to run the entire pipeline
+A main script to run the entire pipeline, returns the same result as the Jupiter notebook.
 """
 
 # Data Preprocessing

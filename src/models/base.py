@@ -115,7 +115,9 @@ class BaseClassifier:
     @param hyperparameters: hyperparameters to set
     """
     def set_params(self, hyperparameters):
-        self.model.set_params(**hyperparameters);
+        self.params = hyperparameters;
+
+        self.model.set_params(**self.params);
 
     """
     Calculate and set optimal threshold value
@@ -124,17 +126,17 @@ class BaseClassifier:
     def _set_optimal_threshold(self,
         optimisation_method = "f1",
     ):
-        # Store probability predictions for validate data 
-        self.validate_pred_y = self._predict(self.validate_X);
+        # Store probability predictions for training data 
+        self.train_pred_y = self._predict(self.train_X);
 
         # Get confusion matrices for each threshold
-        self.validate_confusion_matrices = [self._calculate_confusion_matrix(threshold, self.validate_pred_y, self.validate_y) for threshold in self.possible_thresholds];        
+        self.train_confusion_matrices = [self._calculate_confusion_matrix(threshold, self.train_pred_y, self.train_y) for threshold in self.possible_thresholds];        
 
         # Get optimal threshold index
         if optimisation_method == "f1":
-            self._f1_optimisation(self.validate_confusion_matrices);
+            self._f1_optimisation(self.train_confusion_matrices);
         elif optimisation_method == "youden":
-            self._youden_optimisation(self.validate_confusion_matrices);
+            self._youden_optimisation(self.train_confusion_matrices);
         else:
             raise ValueError("Invalid threshold optimisation method");
         
@@ -285,7 +287,7 @@ class BaseClassifier:
 
         # Calculate f1s and integral of ROC curve
         self.f1s = [self._calculate_f1(precision, recall) for precision, recall in zip(self.precisions, self.recalls)];
-        self.integral_roc = np.trapz(self.recalls, self.precisions);
+        self.roc_integral = np.trapz(self.recalls, self.precisions);
         
         # Calculate f1 for optimal threshold
         self.precision = self.precisions[self.optimal_threshold_index];
