@@ -1,0 +1,5 @@
+[
+    {"cv": 5, "estimator__alpha": 0.0001, "estimator__loss": "hinge", "estimator__max_iter": 1000, "estimator__penalty": "l2", "estimator__random_state": 42, "estimator__tol": 0.0001, "method": "sigmoid"}, 
+    {"criterion": "gini", "max_depth": null, "max_leaf_nodes": null, "min_samples_leaf": 1, "min_samples_split": 2}, 
+    {"max_depth": null, "min_samples_leaf": 1, "min_samples_split": 2, "n_estimators": 200}
+]

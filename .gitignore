@@ -1,4 +1,8 @@
 # Ignore data
 src/data/
 
+# Ignore final submission
+submission.zip
 
+# Ignore notebooks checkpoints
+*.ipynb_checkpoints/

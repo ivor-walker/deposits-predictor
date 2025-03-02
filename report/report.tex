@@ -13,6 +13,8 @@
 \setcounter{secnumdepth}{0}
 
 \usepackage{sidecap}
+\usepackage[font=normalsize]{caption}
+\usepackage{longtable}
 
 \begin{document}
 
@@ -54,7 +56,7 @@ Predicting the outcome of a marketing campaign in advance can reduce calls to cu
 \section{Methodology}
 \vspace{-0.25cm}
 % Data
-This dataset comprises of categorical, numerical and economic predictors. I bin some categorical and all numerical variables to create a "sensitive" dataset on which a sensitive linear model could be trained. During Exploratory Data Analysis (EDA), I discovered a non-linear time trend \ref{fig:weekly_calls_successes} and that economic variables varied significantly but non-linearily with the response. I fit an exploratory Generalised Additive Model (GAM) to the sensitive dataset to model these linear and non-linear variables together. Among the linear variables, I found that method of contact, past marketing campaign outcomes, credit default and number of times contacted were significant predictors of success. \ref{table:gam_summary} Among the non-linear variables, I found that the time component and interest rates were significant - the other economic variables were likely not significant as they were determined by interest rates and stage in the business cycle. I applied my chosen models to an "insensitive" dataset, where all numerical variables were presented as continuous and all levels of categorical variables were included, because these models can infer the correct bins themselves. To genuinely evaluate the model's performance on future data, I train the model on the first 260 days (93\% of data) and evaluate its performance on predicting remaining 130 days (7\% of data). Because the most recent data contains the fewest records \ref{fig:weekly_calls_successes}, this split needs to be far enough forward to give the model some of the most recent temporal patterns but far enough back to create a large enough test set and avoid overfitting. It is a reasonable compromise but still causes some overfitting as the split departs from the 80/20 rule of thumb.
+This dataset comprises of categorical, numerical and economic predictors. I bin some categorical and all numerical variables to create a "sensitive" dataset on which a sensitive linear model could be trained. During Exploratory Data Analysis (EDA), I discovered a non-linear time trend \ref{fig:weekly_calls_successes} and that economic variables varied significantly but non-linearily with the response. I fit an exploratory Generalised Additive Model (GAM) to the sensitive dataset to model these linear and non-linear variables together. Among the linear variables, I found that method of contact, past marketing campaign outcomes, credit default and number of times contacted were significant predictors of success. \ref{table:gam_summary} Among the non-linear variables, I found that the time component and interest rates were significant - the other economic variables were likely not significant as they were determined by interest rates and stage in the business cycle (i.e day\_id). I applied my chosen models to an "insensitive" dataset, where all numerical variables were presented as continuous and all levels of categorical variables were included, because these models can infer the correct bins themselves. To genuinely evaluate the model's performance on future data, I train the model on the first 260 days (93\% of data) and evaluate its performance on predicting remaining 130 days (7\% of data). Because the most recent data contains the fewest records \ref{fig:weekly_calls_successes}, this split needs to be far enough forward to give the model some of the most recent temporal patterns but far enough back to create a large enough test set and avoid overfitting. It is a reasonable compromise but still causes some overfitting as the split departs from the 80/20 rule of thumb.
 
 % Models
 I used Stochastic Gradient Descent (SGD), Decision Tree (DT) and Random Forest (RF) classifiers as they are not computationally intensive to train on large datasets such as ours. They have characteristics that do not change with the dataset (hyperparameters) that can be tuned to improve performance. For each classifier, I defined a "parameter grid" of the possible values of each parameter, trained models on a randomly chosen subset of the training dataset with every combination of hyperparameters, and used the hyperparameters of the best performing model. Tuning models using the entire training set, a larger parameter grid or in an iterative manner (i.e tuning, then changing parameter grid based on values selected in previous tuning) could improve performance but were computationally infeasible. These models produce a probability of success, so after training I choose a threshold to maximise performance on the training set. My measures of performance are the integral approximations of the Receiver Operating Characteristic Curve (integral\_ROC) and the F1 score, which I chose because they are robust to the class imbalance in the dataset. F1 measures the performance of a model at its optimal decision threshold, while ROC integral measures the performance of a model across all possible thresholds.
@@ -93,7 +95,7 @@ The best working model is RF with day\_id removed, but it is worse than a classi
     \includegraphics[width=0.8\textwidth]{img/weekly\_calls\_successes.png}
     \caption{Total calls made per week and the number of successes. There appear to be three segments: weeks 1-17 has a high number of calls and low successes, weeks 18-38 has a medium but unstable number of calls and successes, and after week 39 the number of calls are low but successes are high.}
     \label{fig:weekly_calls_successes}
-\end{figure}
+\end{SCfigure}
 
 % ## Family: binomial
 % ## Link function: logit
@@ -252,21 +254,18 @@ The best working model is RF with day\_id removed, but it is worse than a classi
 % ## R-sq.(adj) = 0.199 Deviance explained = 20.5%
 % ## UBRE = -0.47308 Scale est. = 1 n = 40040
 
-\begin{table}[ht]
-    \centering
-    \resizebox{\textwidth}{!}{ 
-        \begin{tabular}{|c|c|c|c|}
+\begin{longtable}{|c|c|}
             \hline
             \textbf{Significant predictor} & \textbf{Baseline} \\
-            
+
             \hline
             Contacted by telephone & Contacted by cellphone \\
             
             \hline
             Day is Tuesday & Day is Monday \\
-            Day is Wednesday & \'' \\
-            Day is Thursday & \'' \\
-            Day is Friday & \'' \\
+            Day is Wednesday & '' \\
+            Day is Thursday & '' \\
+            Day is Friday & '' \\
 
             \hline
             Customer has defaulted or unknown credit status & Customer has no credit default \\
@@ -276,15 +275,16 @@ The best working model is RF with day\_id removed, but it is worse than a classi
 
             \hline
             Previous campaign failed and customer was contacted once & User was not contacted in a previous campaign \\
-            Previous campaign failed and customer was contacted twice & \'' \\
-            Previous campaign failed and customer was contacted thrice & \'' \\
-            Previous campaign failed and customer was contacted four times & \'' \\
+            Previous campaign failed and customer was contacted twice & '' \\
+            Previous campaign failed and customer was contacted thrice & '' \\
+            Previous campaign failed and customer was contacted four times & '' \\
 
             \hline
             Customer was contacted over nine times in the campaign & Customer was contacted once \\
             
             \hline
-            \textbf{Estimated effect} & \textbf{Standard error} \\
+            \textbf{Estimated effect} & \textbf{Standard error} \\ 
+            \hline
             
             \hline
             0.56 & 0.04 \\
@@ -310,12 +310,10 @@ The best working model is RF with day\_id removed, but it is worse than a classi
             \hline
             0.72 & 0.11 \\
             \hline
-
-        \end{tabular}
-    } 
+    
     \caption{Summary of statistically significant linear predictors from the exploratory model. The estimated effect is the change in the odds (coverted from log-odds) of success compared to the baseline, e.g customers contacted by telephone are 0.56 times as likely to subscribe compared to customers contacted via cell. The standard error is the uncertainty in this estimate. These predictors have sufficiently large effects and low uncertainty to be considered significant.}
 
     \label{table:gam_summary}
-\end{table}
+\end{longtable}
 
 \end{document}

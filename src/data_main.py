@@ -21,9 +21,11 @@ class Data:
     """
     Preprocessing data
     """
-    def preprocess(self):
+    def preprocess(self,
+        remove_day_ids = False
+    ):
         self.__convert_response();
-
+        
         self.__create_day_ids(); 
 
         self.__convert_to_categorical();
@@ -38,7 +40,7 @@ class Data:
 
         self.__remove_unfair_predictors();
         
-        self.__split_data();
+        self.__split_data(remove_day_ids = remove_day_ids);
 
     """
     Convert response to binary
@@ -148,6 +150,7 @@ class Data:
     """
     def __split_data(self,
         validate_size = 0.2,
+        remove_day_ids = True
     ):
         self.get_split_day(); 
         
@@ -159,10 +162,14 @@ class Data:
         # Scale continuous columns after determining split
         self.__scale_continuous();
         
+        # Drop day_id column
+        if remove_day_ids:
+            self.data.drop(columns="day_id", inplace=True);
+
         # Split predictors and response dummies
         X = self.data.drop(columns="response");
         y = self.data["response"];
-                 
+        
         # Create test sets
         test_X = X.loc[test_indices];
         self.insensitive_test_X = self.__select_insensitive_data(test_X);

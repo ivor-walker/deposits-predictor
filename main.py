@@ -17,7 +17,7 @@ print("Data preprocessing complete. Initialising models...");
 models = Models(data);
 
 print("Models initialisation complete. Tuning models...");
-models.tune(load = True);
+models.tune(load_path = "src/hyperparameters.json");
 
 print("Model tuning complete. Training models...");
 models.train();

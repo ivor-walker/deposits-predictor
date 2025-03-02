@@ -140,6 +140,7 @@ class BaseClassifier:
         else:
             raise ValueError("Invalid threshold optimisation method");
         
+        self.train_confusion_matrix = self.train_confusion_matrices[self.optimal_threshold_index];
         self.threshold = self.possible_thresholds[self.optimal_threshold_index];
     
     """ 
@@ -160,22 +161,22 @@ class BaseClassifier:
     """
     def _f1_optimisation(self, confusion_matrices):
         # Calculate precisions and recalls for each confusion matrix
-        self.validate_precisions = [self._calculate_precision(confusion_matrix) for confusion_matrix in confusion_matrices]; 
-        self.validate_recalls = [self._calculate_recall(confusion_matrix) for confusion_matrix in confusion_matrices];
+        self.train_precisions = [self._calculate_precision(confusion_matrix) for confusion_matrix in confusion_matrices]; 
+        self.train_recalls = [self._calculate_recall(confusion_matrix) for confusion_matrix in confusion_matrices];
         
         # Calculate f1 scores for each precision and recall
-        self.validate_f1s = np.array(
-            [self._calculate_f1(precision, recall) for precision, recall in zip(self.validate_precisions, self.validate_recalls)]
+        self.train_f1s = np.array(
+            [self._calculate_f1(precision, recall) for precision, recall in zip(self.train_precisions, self.train_recalls)]
         );
 
         # Find threshold with maximum f1
-        self.optimal_threshold_index = np.argmax(self.validate_f1s);
+        self.optimal_threshold_index = np.argmax(self.train_f1s);
 
         # Store evaluation metrics at optimal threshold 
-        self.validate_precision = self.validate_precisions[self.optimal_threshold_index]; 
-        self.validate_recall = self.validate_recalls[self.optimal_threshold_index];
-        self.validate_f1 = self.validate_f1s[self.optimal_threshold_index];
-        self.validate_roc_integral = np.trapz(self.validate_recalls, self.validate_precisions);
+        self.train_precision = self.train_precisions[self.optimal_threshold_index]; 
+        self.train_recall = self.train_recalls[self.optimal_threshold_index];
+        self.train_f1 = self.train_f1s[self.optimal_threshold_index];
+        self.train_roc_integral = np.trapz(self.train_recalls, self.train_precisions);
 
     """ 
     Optimise threshold using Youden's J statistic
@@ -183,22 +184,22 @@ class BaseClassifier:
     """
     def _youden_optimisation(self, confusion_matrices):
         # Calculate sensitivities and specificities for each confusion matrix
-        self.validate_sensitivities = [self._calculate_recall(confusion_matrix) for confusion_matrix in confusion_matrices]; 
-        self.validate_specificities = [self._calculate_specificity(confusion_matrix) for confusion_matrix in confusion_matrices];
+        self.train_sensitivities = [self._calculate_recall(confusion_matrix) for confusion_matrix in confusion_matrices]; 
+        self.train_specificities = [self._calculate_specificity(confusion_matrix) for confusion_matrix in confusion_matrices];
         
         # Calculate Youden's J statistic for each sensitivity and specificity
-        self.validate_youdens = np.array(
+        self.train_youdens = np.array(
         
                 [self._calculate_youden(sensitivity, specificity) for sensitivity, specificity in zip(self.sensitivities, self.specificities)]
         );
 
         # Find threshold with maximum Youden's J statistic
-        self.optimal_threshold_index = np.argmax(self.validate_youdens);
+        self.optimal_threshold_index = np.argmax(self.train_youdens);
 
         # Store evaluation metrics at optimal threshold
-        self.validate_sensitivity = self.validate_sensitivities[self.optimal_threshold_index]; 
-        self.validate_specificity = self.validate_specificities[self.optimal_threshold_index];
-        self.validate_youden = self.validate_youdens[self.optimal_threshold_index];
+        self.train_sensitivity = self.train_sensitivities[self.optimal_threshold_index]; 
+        self.train_specificity = self.train_specificities[self.optimal_threshold_index];
+        self.train_youden = self.train_youdens[self.optimal_threshold_index];
 
     """
     Calculate F1 score for a given precision and recall 
